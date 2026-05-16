@@ -1,12 +1,29 @@
 # StudyAtlas
 
-StudyAtlas is a personalized LLM wiki for students. It uses Cognee as long-term memory, Redis as session memory, and markdown files as the visible wiki artifact for the hackathon demo.
+StudyAtlas is a personalized LLM wiki for students. It uses **Cognee** as long-term memory, **Redis** as the student's working memory (with TTLs that mirror the forgetting curve), and markdown files as the visible wiki artifact.
 
-The core loop is:
+The core loop:
 
 ```text
 Ingest -> Build Wiki -> Query + Self-Improve -> Lint
 ```
+
+The demo's wow moment is a mastery bar visibly decaying past threshold mid-pitch, triggering a "you're losing this — here's your past self explaining it" toast.
+
+> **The source of truth is [`courseatlas_project_plan.md`](./courseatlas_project_plan.md).** Read §2 (the hook), §5 (demo script), §6 (Redis primitives table), and your role in §10 before writing code.
+
+## Where to Start (by role)
+
+Four-person split per plan §10. Sync at 15min on payload shapes, integration test at 60min, feature freeze at 90min, submit at 4:30 PM.
+
+| Role | What you own | Files | Plan ref |
+|---|---|---|---|
+| **P1 — Lead / Curator / Demo / Pitch** | EA51 ingest sanity check, decay tuning, demo timing, submission writeup, floater | `assets/`, `templates/SUBMISSION.md`, tuning `DEMO_TIME_SCALE` | §10 P1, §15 |
+| **P2 — Backend / Redis #1** | Sorted-set mastery state, TTL keys, distillation rule, fading-concepts lint clause | `backend/memory.py`, `backend/lint.py`, `backend/ingest.py` | §10 P2 |
+| **P3 — Backend / Redis #2** | Event streams, decay watcher, SSE, skill loop (propose+apply) | `backend/main.py`, `backend/query.py`, `backend/improve.py` (new), `my_skills/personalized-explainer/SKILL.md` (new) | §10 P3 |
+| **P4 — Frontend + Design** | Mastery decay bars, decay toast (SSE), SKILL.md diff viewer, visual polish | `frontend/src/components/*` (add `MasteryTimeline.jsx`, `DecayToast.jsx`, `SkillDiff.jsx`) | §10 P4 |
+
+**Branch strategy for the timebox:** everyone commits to `main` in small, fast pieces. Pull before you push. If you break something, revert — don't try to fix on a side branch.
 
 ## Requirements
 
@@ -62,11 +79,15 @@ The important packages are:
 
 ## Configure Environment
 
-Create a local `.env` file. This file is ignored by git.
+Copy `.env.example` to `.env` and fill in. `.env` is gitignored.
 
 ```env
 LLM_API_KEY=your-api-key
 REDIS_URL=redis://localhost:6379
+
+# Demo: divides real TTLs by this factor so mastery visibly decays during a 3-minute demo.
+# 100 means "1 day of forgetting curve = ~14 seconds on stage." Set to 1 for production.
+DEMO_TIME_SCALE=100
 ```
 
 For macOS/Linux shell sessions, you can also export the values directly:
@@ -91,18 +112,21 @@ https://docs.cognee.ai/setup-configuration/llm-providers
 
 ## Start Redis
 
-Redis is the fast session-memory layer. Cognee uses it when `REDIS_URL` is set and calls include a `session_id`.
+Redis is the student's working memory. We use it four ways: sorted sets for mastery state, TTL keys for the forgetting curve, streams for event logs, pub/sub for the live decay toast (see plan §6).
+
+**The `--notify-keyspace-events KEA` flag is required** — without it, the decay watcher won't see TTL expirations.
 
 Docker, all platforms:
 
 ```bash
-docker run -p 6379:6379 redis:latest
+docker run -p 6379:6379 redis:latest --notify-keyspace-events KEA
 ```
 
-macOS with Homebrew Redis:
+macOS with Homebrew Redis (apply the same setting):
 
 ```bash
 brew services start redis
+redis-cli config set notify-keyspace-events KEA
 ```
 
 To stop the Homebrew Redis service:
@@ -111,7 +135,14 @@ To stop the Homebrew Redis service:
 brew services stop redis
 ```
 
-Keep this container running while using the app.
+Verify the flag is on:
+
+```bash
+redis-cli config get notify-keyspace-events
+# expected: notify-keyspace-events  AKE  (or any string containing K and E)
+```
+
+Keep Redis running while using the app.
 
 ## Smoke Test Cognee
 
@@ -178,15 +209,20 @@ uvicorn backend.main:app --reload
 The backend listens at `http://localhost:8000` and exposes:
 
 ```text
-POST /ingest               Upload a course file and extract content into the wiki
-POST /student-context      Save a student profile note (goals, weak topics)
+POST /ingest               Upload a course file. Seeds mastery sorted set, logs XADD event
+POST /query                Answer a question via cognee.search(skills=[...], session_id=...)
+POST /rate                 Rate an answer 0..1. ZINCRBY mastery, write SkillRunEntry
+POST /improve              Apply a proposed skill rewrite, return the SKILL.md diff
+GET  /mastery-state        Current Redis mastery sorted set for the active session
+GET  /events/decay         SSE stream of decay:warn pub/sub events (powers the toast)
+GET  /lint                 Lint report including the fading-concepts rule
+GET  /graph                Concept graph JSON (nodes carry mastery + known_as_of)
 GET  /wiki/pages           List all generated wiki pages
 GET  /wiki/page/{path}     Read the markdown content of a single page
-POST /query                Answer a question from the wiki with personalization
 POST /save-answer          Save a useful answer as a study guide or bridge page
-GET  /lint                 Run the lint check and return a structured report
-GET  /graph                Return the concept graph as JSON (nodes + edges)
 ```
+
+Open `http://localhost:8000/docs` for the live OpenAPI UI.
 
 ## Frontend
 
@@ -205,7 +241,7 @@ npm install
 npm run dev
 ```
 
-The dev server starts at `http://localhost:5174`.
+The dev server starts at `http://localhost:5173` and proxies `/api/*` to the FastAPI backend at `http://localhost:8000`. Start the backend in another terminal first.
 
 ### Build for production
 
@@ -239,13 +275,45 @@ frontend/src/
     LintReport.jsx              Filterable lint issues with severity badges
 ```
 
+## Demo Materials
+
+The EA51 (Empirical Analyses) course materials in `assets/` are the demo dataset:
+
+```text
+assets/
+  ea51-syllabus.pdf
+  EA51 - Science of Science Communication (1).pdf
+  Research Design.pdf
+  casestudy.pdf
+  EA51 Session 15 - (8.2) Case study.docx
+  evidencebased.pdf
+  hypothesisdevelopment.pdf
+  plausibility.pdf
+```
+
+The demo question we run live: *"Help me explain why the Zika microcephaly reading is a case study, and connect it to evidence-based argument, hypothesis development, and plausibility."* See plan §5.5 for the full case study.
+
+## Skills
+
+`my_skills/` holds the skill packs cognee uses for the propose-then-apply self-improvement loop. The hackathon-critical one is `personalized-explainer` — P3 authors and tunes it.
+
+```text
+my_skills/
+  personalized-explainer/
+    SKILL.md
+```
+
 ## Project Files
 
 ```text
-courseatlas_project_plan.md   Project plan and hackathon scope
+courseatlas_project_plan.md   Project plan and hackathon scope (source of truth)
 docs/setup_guideline.md       Hackathon setup and Cognee/Redis reference
 requirements.txt              Python dependencies
 test.py                       Minimal Cognee smoke test
+test_two_tier.py              Smoke test for the Redis/Cognee session pattern
+assets/                       EA51 demo materials
+my_skills/                    Skill packs for the self-improvement loop
+backend/                      FastAPI app
 frontend/                     React + Tailwind CSS frontend
 ```
 

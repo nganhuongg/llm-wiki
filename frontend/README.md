@@ -1,16 +1,40 @@
-# React + Vite
+# StudyAtlas Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite + Tailwind CSS. Owned by P4 per plan §10.
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev    # http://localhost:5173
+```
 
-## React Compiler
+The dev server proxies `/api/*` to the FastAPI backend at `http://localhost:8000` (configured in `vite.config.js`, strips the `/api` prefix). Start the backend separately (`uvicorn backend.main:app --reload` from the repo root).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## What's in here today
 
-## Expanding the ESLint configuration
+| File | What it does |
+|---|---|
+| `src/App.jsx` | Tab shell (Ingest, Wiki, Query, Graph, Lint) |
+| `src/components/UploadPanel.jsx` | Drag-and-drop upload + student context note |
+| `src/components/WikiViewer.jsx` | Sidebar page list + markdown viewer |
+| `src/components/QueryBox.jsx` | Query input, sources, save-as-study-guide |
+| `src/components/GraphView.jsx` | Force-directed concept graph |
+| `src/components/LintReport.jsx` | Filterable lint issues with severity badges |
+| `src/api.js` | API client |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## What P4 builds for the demo (plan §10 P4)
+
+Three demo-critical panels — these are the wow moment:
+
+1. **`MasteryTimeline.jsx`** — reads `/mastery-state`, animates bars 0..1 with a red threshold line at 0.4. Bars must be large enough to read from the back of the room. Color: mastery green → fading amber → forgotten red.
+2. **`DecayToast.jsx`** — subscribes to `/events/decay` (SSE). When a `decay:warn` lands, slide in a card showing the concept and its past-self page (returned in the event payload, including `known_as_of`). **This is THE money shot.**
+3. **`SkillDiff.jsx`** — renders `/improve` SKILL.md before/after as a side-by-side diff with proper diff highlighting.
+
+Design pass: tighten typography, use a single accent color, no new dependencies (Tailwind only).
+
+## Build
+
+```bash
+npm run build      # outputs to dist/
+```
