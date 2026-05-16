@@ -9,12 +9,16 @@
 
 ## 2. The Hook (read first)
 
+> *"How many times have you understood something perfectly, then forgotten it three weeks later? Your notes don't know. Your textbooks don't know. We built a wiki that does — and reminds you, in your own past words."*
+
 Two memory tiers, deliberately mapped:
 
-- **Redis = the student's working memory.** Every study event — page viewed, question asked, "I get it" / "I don't get it" rating, concept brushed against in a query — is written to Redis under a `session_id`, with a TTL that mirrors the forgetting curve. Mastery state per concept lives here and *decays*.
+- **Redis = the student's working memory.** Every study event — page viewed, question asked, "I get it" / "I don't get it" rating, concept brushed against in a query — is written to Redis under a `session_id`, with a TTL that mirrors the forgetting curve. Mastery state per concept lives here and *decays in real time*.
 - **Cognee = the student's consolidated knowledge.** When a concept is reinforced across enough sessions, it's promoted into the permanent graph with a `known_as_of` timestamp. The graph holds course pages, concept pages, bridges, and the *history of what the student has actually internalized*.
 
-This is the load-bearing pattern the hackathon brief flags twice. Most teams will use Redis as a generic cache; we make it the cognitive working-memory analogue, which is the part judges are scoring.
+**The wow moment:** During the demo, a mastery bar visibly decays past threshold (TTLs are sped up 100× for stage time). A toast fires — *"You're losing 'hypothesis testing.' Here's your past self explaining it."* Cognee returns the page with its original `known_as_of` date. The room feels it because everyone has lived it.
+
+This is the load-bearing pattern the hackathon brief flags twice. Most teams will use Redis as a generic cache; we use it the way Redis wants to be shown off (see §6).
 
 ## 3. The Three Required Operations
 
@@ -30,16 +34,21 @@ This is the load-bearing pattern the hackathon brief flags twice. Most teams wil
 - **Self-improvement has a visible diff**: a `SKILL.md` rewrite shown live in the demo.
 - **Pain is universal** — every student forgets, every wiki is dead text. StudyAtlas connects the two.
 
-## 5. Demo Script (3 minutes, optimized for the money shot)
+## 5. Demo Script (3 minutes, built around the live-decay moment)
 
-| Time | What happens |
-|---|---|
-| 0:00–0:20 | **Hook.** "Students forget. Wikis don't. Here's why that gap matters." |
-| 0:20–0:50 | **Ingest.** Drop 2 syllabi + a "things I'm confused about" note. Wiki pages appear. Show Redis populated with initial mastery state. |
-| 0:50–1:30 | **Baseline query.** Ask: *"Explain hypothesis testing using something I already understand."* Generic answer. Student rates 0.3. Show the Redis session log + mastery-decay panel. |
-| 1:30–2:10 | **Self-improve.** Click "Improve." `SkillRunEntry` records the failure → cognee proposes a `personalized-explainer` rewrite that anchors on writing/argumentation (the student's strong area). **Show the SKILL.md diff on screen.** Apply it. |
-| 2:10–2:40 | **Improved query.** Same question. New answer anchors on argument structure. Score jumps to 0.8. |
-| 2:40–3:00 | **Lint + close.** Run lint — surfaces a *forgotten* concept (mastery decayed past threshold) plus a missing bridge. Close: "Redis is the student's working memory, Cognee is their consolidated knowledge. The wiki learns *this* student." |
+The 2:00 mark is the wow. Everything before it sets the bars on screen so they can decay; everything after it pays off the moment.
+
+**TTL acceleration:** mastery-state TTLs are scaled by an env var `DEMO_TIME_SCALE=100`. Ebbinghaus says ~1 day to first forget; we make that ~14 seconds on stage. Without this, nothing visibly decays inside 3 minutes — make sure it's set.
+
+| Time | Beat | What the audience sees | What Redis is doing |
+|---|---|---|---|
+| 0:00–0:20 | **Hook.** Read the line from §2 verbatim. | Title card. | — |
+| 0:20–0:50 | **Ingest.** Drop 2 syllabi + a "what I'm confused about" note. | Wiki pages render. Mastery bars populate on the right (~6 concepts at varying starting scores). | `ZADD mastery:<session>` per concept; `XADD events:<session>` per upload |
+| 0:50–1:30 | **Baseline query.** Ask: *"Explain hypothesis testing using something I already understand."* Student rates 0.3. | Generic textbook answer. Bars start ticking downward visibly. | `XADD events:<session>` (query, rating); `ZINCRBY mastery` (touched concept goes up slightly) |
+| 1:30–2:00 | **Self-improve.** Click "Improve." | SKILL.md diff renders on screen: explainer learns "anchor stats on argument structure for this student." Apply. | `cognee.remember(SkillRunEntry…)`; `improve_skill(apply=True)` |
+| **2:00–2:30** | **THE MOMENT.** A bar drops below the red line. | Toast: *"You're losing 'correlation.' Here's your past self explaining it — added Tuesday."* Card appears with the original page + its `known_as_of` date. | `ZRANGEBYSCORE mastery 0 0.4` fires from the decay watcher; `PUBLISH decay:warn` → frontend toast; cognee recall returns the timestamped page |
+| 2:30–2:50 | **Improved query + lint.** Same question, anchored on argument structure (score 0.8). Run lint — surfaces 2 more fading concepts as review cards. | Side-by-side: baseline answer vs improved answer. Lint panel lists fading concepts in red. | `ZRANGEBYSCORE` for the lint rule |
+| 2:50–3:00 | **Close.** "Knowledge has a half-life. We built the first wiki that knows it." | Title card. | — |
 
 ## 6. Architecture
 
@@ -64,23 +73,35 @@ This is the load-bearing pattern the hackathon brief flags twice. Most teams wil
    +----------+         +-------------------+
 ```
 
-**Redis stores per `session_id`:**
-- raw study events (page viewed, query asked, rating given)
-- per-concept `mastery_state` (float 0..1, TTL decays over hours/days)
-- recent query history for the current study session
+### Redis primitives — what does what
+
+This is the table judges will look for. We use Redis four ways, each for a reason:
+
+| Primitive | Key shape | Purpose |
+|---|---|---|
+| **Sorted set** (`ZADD`, `ZINCRBY`, `ZRANGEBYSCORE`) | `mastery:<session_id>` → `{concept: score 0..1}` | Per-session mastery state. `ZRANGEBYSCORE mastery 0 0.4` instantly returns "what's fading" — sub-ms. Powers the lint rule and the live-decay watcher. |
+| **TTL on hash keys** | `concept:<session>:<slug>` with `EXPIRE` | Ebbinghaus forgetting curve. Sped up 100× for the demo via `DEMO_TIME_SCALE`. When the key expires, a keyspace notification triggers the decay event. |
+| **Streams** (`XADD`, `XRANGE`) | `events:<session_id>` | Per-session event log: every page view, query, rating. This is the concrete artifact `session_id` actually points to. Doubles as the audit trail in the submission. |
+| **Pub/sub** (`PUBLISH`, `SUBSCRIBE`) | channel `decay:warn:<session_id>` | The "you're losing this" toast. Frontend subscribes; no polling. The decay watcher publishes when a `ZRANGEBYSCORE` reveals a fade. |
 
 **Distillation rule (Redis → Cognee):**
 A concept gets `cognee.remember(...)`'d with a `known_as_of` timestamp when:
-- it's referenced positively across ≥ N sessions, OR
+- mastery score (from the sorted set) crosses 0.7 sustained across ≥ 2 sessions, OR
 - the student explicitly rates a related answer ≥ 0.7, OR
 - a `bridge` page touching it is saved.
+
+**Read path:** `ZRANGEBYSCORE` first (Redis, sub-ms) → `cognee.recall(...)` second (graph). The brief's exact pattern, made concrete.
 
 **Cognee stores:**
 - course pages, concept pages, source pages, bridge pages
 - the `personalized-explainer` skill (rewritten via the propose/apply loop)
-- consolidated concept history with timestamps
+- consolidated concept history with `known_as_of` timestamps (this is what the toast pulls up)
 
-## 7. The Self-Improvement Loop (this is the differentiator)
+## 7. The Self-Improvement Loop (the mechanism behind the wow)
+
+> The decay moment is the *story*. The skill rewrite is the *mechanism* that earns the score. Judges score the loop; the room remembers the decay.
+
+
 
 Single skill: `my_skills/personalized-explainer/SKILL.md`.
 
@@ -128,10 +149,13 @@ Loop, lifted from the hackathon brief:
 
 ## 10. Four-Person Split
 
-### P1 — Redis + memory layer (the hackathon's load-bearing piece)
-1. `backend/memory.py`: wire `session_id` end-to-end. Function `set_mastery(concept, score, ttl)` and `get_mastery_state()` over Redis.
-2. Forgetting-curve TTL (use real seconds for demo speed, e.g., 60s = 1 "day").
-3. Distillation rule: positive references across ≥ 2 sessions → `cognee.remember(..., metadata={"known_as_of": ts})`.
+### P1 — Redis + memory layer (the hackathon's load-bearing piece, *and* the demo's wow engine)
+1. `backend/memory.py`: wire `session_id` end-to-end. Direct Redis client (don't only go through cognee — we want the primitives visible).
+2. **Sorted set** `mastery:<session>` with `ZADD`/`ZINCRBY`/`ZRANGEBYSCORE`. API: `set_mastery`, `bump_mastery`, `fading_concepts(threshold)`.
+3. **Streams** `events:<session>` with `XADD` on every ingest/query/rate. API: `log_event`, `recent_events`.
+4. **TTL keys** `concept:<session>:<slug>` with `EXPIRE`. Apply `DEMO_TIME_SCALE` (default 100) — divides real TTLs by that factor.
+5. **Decay watcher**: a background task that runs `ZRANGEBYSCORE mastery 0 0.4` every ~2s; `PUBLISH decay:warn:<session>` with the concept payload. Frontend SSE/WebSocket subscribes.
+6. Distillation rule: mastery ≥ 0.7 sustained across ≥ 2 sessions → `cognee.remember(..., metadata={"known_as_of": ts})`.
 
 ### P2 — Skill loop (the demo money shot)
 1. Author `my_skills/personalized-explainer/SKILL.md`.
@@ -139,10 +163,11 @@ Loop, lifted from the hackathon brief:
 3. `backend/improve.py`: `SkillRunEntry` + `improve_skill(apply=True)`. Return the SKILL.md diff as part of the response.
 4. Seed one canned scenario where baseline answer fails and the rewrite obviously wins.
 
-### P3 — Frontend (focus on the two demo-critical panels)
-1. Mastery timeline (reads `/mastery-state`).
-2. Skill diff viewer (renders `/improve` response).
-3. Graph view if time. Wire color by mastery.
+### P3 — Frontend (focus on the three demo-critical panels)
+1. **Mastery timeline / decay bars** — reads `/mastery-state`, animates score changes. Red line at 0.4 threshold.
+2. **Decay toast** — subscribes to `/events/decay` (SSE backed by Redis pub/sub). When a `decay:warn` fires, slide in a card with the past-self page (returned in the event payload).
+3. **Skill diff viewer** — renders `/improve` SKILL.md before/after as a side-by-side diff.
+4. Graph view if time. Color nodes by mastery score.
 
 ### P4 — Lint + demo data + pitch
 1. `backend/lint.py`: three rules including the forgotten-concepts rule.
@@ -153,13 +178,14 @@ Loop, lifted from the hackathon brief:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/ingest` | Upload a document or note |
-| POST | `/query` | Ask a question, returns answer + concepts touched |
-| POST | `/rate` | Rate an answer 0..1 → triggers `SkillRunEntry` |
+| POST | `/ingest` | Upload a document or note (seeds mastery sorted set) |
+| POST | `/query` | Ask a question, returns answer + concepts touched (logs to stream) |
+| POST | `/rate` | Rate an answer 0..1 → `ZINCRBY` + `SkillRunEntry` |
 | POST | `/improve` | Apply a proposed skill rewrite, returns the diff |
-| GET | `/mastery-state` | Current Redis mastery state for the active session |
-| GET | `/lint` | Lint report |
-| GET | `/graph` | Concept graph JSON |
+| GET | `/mastery-state` | Current Redis mastery state (sorted set dump) for the active session |
+| GET | `/events/decay` | **SSE stream** — subscribes to Redis pub/sub `decay:warn:<session>`. Powers the toast. |
+| GET | `/lint` | Lint report (includes fading-concepts rule) |
+| GET | `/graph` | Concept graph JSON (nodes carry mastery + `known_as_of`) |
 | GET | `/wiki/pages`, `/wiki/page/{path}` | Wiki browse |
 
 ## 12. Self-Improvement Evidence (for the submission)
@@ -188,9 +214,11 @@ The SKILL.md diff is the artifact we paste into the submission.
 | Risk | Mitigation |
 |---|---|
 | Cognee skill rewrite produces a bad proposal in front of judges | Pre-run the loop once; if the proposal is good, freeze that exact run as the demo. We can replay against a canned dataset. |
-| Redis distillation rule is invisible to judges | Mastery timeline panel + a small "promoted to graph" toast when distillation fires. |
+| Redis distillation rule is invisible to judges | Mastery timeline panel + a small "promoted to graph" toast when distillation fires. Dev panel exposes the actual Redis commands firing. |
+| **The decay moment doesn't fire on time** | This is the single biggest demo risk. Tune `DEMO_TIME_SCALE` and starting mastery scores so a specific concept *will* cross 0.4 between 2:00 and 2:15. Practice the run twice. Have a manual `POST /debug/force-decay` endpoint as the safety net. |
 | 3 minutes is tight | Don't introduce, don't read slides — start typing into the upload box at 0:20. |
 | One person blocks another | P2 can develop against a stubbed `memory.py`; P3 can develop against stubbed API responses. Agree on response shapes in the first 10 minutes. |
+| Redis keyspace notifications aren't enabled by default | `docker run ... redis:latest --notify-keyspace-events KEA` — bake this into the README setup step. |
 
 ## 15. First 15 Minutes (parallel kickoff)
 
