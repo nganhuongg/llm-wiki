@@ -85,37 +85,47 @@ Example users:
 - a humanities student juggling writing-heavy courses with research methods
 - an engineering student reviewing prerequisites across math, physics, and programming
 
-## 6. Example Use Case
+## 6. Demo Case Study
 
-A student uploads materials from three courses:
+A student uploads real EA51 course materials from the `assets/` folder:
 
-- Introduction to Psychology
-- Statistics 101
-- Academic Writing
+- `ea51-syllabus.pdf`
+- `EA51 - Science of Science Communication (1).pdf`
+- `Research Design.pdf`
+- `casestudy.pdf`
+- `EA51 Session 15 - (8.2) Case study.docx`
+- `evidencebased.pdf`
+- `hypothesisdevelopment.pdf`
+- `plausibility.pdf`
 
-They also add:
+The student is preparing for an Empirical Analyses discussion and adds personal context:
 
-- their own lecture notes
-- a short statement of study goals
-- a list of concepts they find confusing
+- "I understand the readings separately, but I struggle to connect case studies, evidence, hypothesis development, and plausibility."
+- "I need help explaining why the Zika and microcephaly reading counts as a case study."
+- "I also want to compare that case study logic with the Japanese vocabulary research design example."
 
 The system builds pages such as:
 
-- `courses/intro_to_psychology.md`
-- `courses/statistics_101.md`
-- `courses/academic_writing.md`
-- `concepts/correlation.md`
-- `concepts/evidence.md`
+- `courses/ea51_empirical_analyses.md`
+- `sources/ea51_syllabus.md`
+- `sources/science_of_science_communication.md`
+- `sources/japanese_vocabulary_research_design.md`
+- `sources/zika_microcephaly_case_study.md`
+- `concepts/case_study.md`
+- `concepts/evidence_based_argument.md`
+- `concepts/hypothesis_development.md`
+- `concepts/plausibility.md`
+- `concepts/research_design.md`
 - `student/profile.md`
 - `student/confusing_topics.md`
-- `study_guides/evidence_for_this_student.md`
-- `bridges/evidence_across_psychology_statistics_writing.md`
+- `study_guides/zika_case_study_for_this_student.md`
+- `bridges/case_study_evidence_hypothesis_plausibility.md`
 
 The student asks:
 
-> Explain evidence in a way that helps me compare psychology, statistics, and writing, and focus on where I usually get confused.
+> Help me explain why the Zika microcephaly reading is a case study, and connect it to evidence-based argument, hypothesis development, and plausibility.
 
-The system retrieves the relevant wiki pages, generates an answer, and saves the result as a personalized study guide or bridge page.
+The system retrieves the relevant wiki pages, generates a personalized answer, and saves the result as a study guide or bridge page for the demo.
 
 ## 7. Core Features
 
@@ -158,19 +168,19 @@ Example structure:
 ```text
 wiki/
   courses/
-    intro_to_psychology.md
-    statistics_101.md
-    academic_writing.md
+    ea51_empirical_analyses.md
 
   concepts/
-    evidence.md
-    correlation.md
-    hypothesis_testing.md
+    case_study.md
+    evidence_based_argument.md
+    hypothesis_development.md
+    plausibility.md
+    research_design.md
 
   sources/
-    psychology_syllabus.md
-    statistics_week_1_reading.md
-    writing_assignment_guide.md
+    ea51_syllabus.md
+    zika_microcephaly_case_study.md
+    japanese_vocabulary_research_design.md
 
   student/
     profile.md
@@ -178,11 +188,11 @@ wiki/
     confusing_topics.md
 
   study_guides/
-    evidence_for_this_student.md
-    hypothesis_testing_review.md
+    zika_case_study_for_this_student.md
+    hypothesis_development_review.md
 
   bridges/
-    evidence_across_psychology_statistics_writing.md
+    case_study_evidence_hypothesis_plausibility.md
 
   index.md
   changelog.md
@@ -195,10 +205,10 @@ The student can ask questions against the accumulated wiki.
 
 Example questions:
 
-- How does correlation in statistics relate to research methods in psychology?
-- What do I need to understand before hypothesis testing?
-- Which assignments require evidence-based reasoning?
-- Explain bias using examples from my current courses.
+- Why is the Zika microcephaly reading a case study?
+- How do evidence-based argument and hypothesis development connect in EA51?
+- What makes a hypothesis plausible in the research design materials?
+- How does the Japanese vocabulary research design example compare with the case study reading?
 - Which topics should I review first based on what I said I find confusing?
 
 The system retrieves relevant wiki pages and generates answers using the accumulated knowledge base plus the student's stored context.
@@ -209,18 +219,18 @@ A key feature is that useful answers can be saved back into the wiki.
 
 For example, if the student asks:
 
-> Compare how evidence is used in biology, statistics, and writing for someone who struggles with claims versus data.
+> Help me explain why the Zika microcephaly reading is a case study, and connect it to evidence-based argument, hypothesis development, and plausibility.
 
 The system can generate and save:
 
 ```text
-study_guides/evidence_claims_vs_data.md
+study_guides/zika_case_study_for_this_student.md
 ```
 
 or
 
 ```text
-bridges/evidence_across_biology_statistics_writing.md
+bridges/case_study_evidence_hypothesis_plausibility.md
 ```
 
 This makes the wiki compound over time. The next time the student asks a related question, the system can build from the saved explanation instead of reconstructing everything from raw documents.
@@ -247,13 +257,13 @@ Example lint output:
 ```text
 Lint Report
 
-1. Missing concept page: "correlation vs causation"
-   Mentioned in psychology_syllabus.md and statistics_week_2.md.
+1. Missing concept page: "comparison groups"
+   Mentioned in ea51_syllabus.md and japanese_vocabulary_research_design.md.
 
-2. Weak bridge: "evidence"
-   Appears in Psychology, Statistics, and Writing, but no bridge page exists.
+2. Weak bridge: "case study"
+   Appears in the EA51 syllabus, the handbook page, and the Zika pre-class work, but no bridge page exists.
 
-3. Missing personalized guide: "hypothesis testing"
+3. Missing personalized guide: "hypothesis development"
    Marked as a confusing topic in student/confusing_topics.md but no study guide exists.
 
 4. Orphan page: "week_1_notes.md"
@@ -267,37 +277,38 @@ The Personalized Concept Bridge Generator explains how the same concept appears 
 Example input:
 
 ```text
-Concept: evidence
-Courses: Statistics, Biology, Writing
-Student difficulty: separating claims, data, and interpretation
+Concept: case study
+Sources: EA51 syllabus, case study handbook, Zika microcephaly pre-class work, Japanese vocabulary research design
+Student difficulty: connecting research design, evidence, hypothesis development, and plausibility
 ```
 
 Example output:
 
 ```text
-# Evidence Across Statistics, Biology, and Writing
+# Case Study, Evidence, Hypothesis Development, and Plausibility
 
 ## What This Student Keeps Mixing Up
-The student often blends together raw data, interpretation, and argument.
+The student understands each reading separately but has trouble explaining how a case study supports a broader empirical argument.
 
-## Statistics
-Evidence often means data patterns, uncertainty, confidence intervals, and inference.
+## EA51 Syllabus
+The syllabus frames case study design as part of research design: students need to design and interpret studies, not just define terms.
 
-## Biology
-Evidence often means experimental observations, mechanisms, measurements, and reproducible findings.
+## Case Study Handbook
+A case study focuses deeply on one example from a broader population. It can refine hypotheses and generate insight, but generalization must be careful.
 
-## Writing
-Evidence often means information selected and structured to support a thesis for an audience.
+## Zika Microcephaly Reading
+The Zika example is a case study because researchers cannot ethically run an experiment that infects pregnant people. Instead, they study naturally occurring cases in depth to investigate a possible causal mechanism.
 
-## Cross-Course Connection
-Across these courses, evidence is not just "facts." It is information used to justify a claim under the standards of a specific discipline.
+## Research Design Connection
+The Japanese vocabulary research design example asks how two study methods compare under controlled conditions. That is different from a case study, but both require a clear research question, evidence, and limits on what can be concluded.
 
 ## Personalized Study Insight
-Before using evidence, ask:
-1. What is the claim?
-2. What counts as evidence in this course?
-3. Am I describing data, interpreting it, or arguing from it?
-4. What assumption connects the evidence to the claim?
+Before explaining a study, ask:
+1. What is the research question?
+2. Why was this design chosen?
+3. What evidence supports the claim?
+4. What assumptions make the hypothesis plausible?
+5. What are the limits of generalizing from this evidence?
 ```
 
 This is the main demo moment because it shows memory, synthesis, and personalization in one step.
@@ -324,8 +335,8 @@ Build a small, clear, working demo.
 
 ### MVP Inputs
 
-- 2 to 4 course syllabi
-- 1 to 2 extra readings or notes
+- 1 course syllabus
+- 4 to 6 handbook pages, readings, notes, or assignment files
 - 1 short student profile or weak-topics note
 
 ### MVP Outputs
@@ -340,11 +351,11 @@ Build a small, clear, working demo.
 ### MVP Demo Flow
 
 ```text
-1. Upload 2-4 course materials.
+1. Upload the EA51 syllabus, case study materials, and handbook pages.
 2. Add a short student context note.
 3. Click "Build Wiki."
 4. Show generated course pages, concept pages, and student profile page.
-5. Ask a personalized cross-course question.
+5. Ask a personalized research-design question.
 6. Save the answer as a study guide or bridge page.
 7. Run lint.
 8. Show missing concepts, weak links, or suggested personalized guides.
@@ -643,31 +654,41 @@ Build the local markdown-based system first. Then make Cognee an optional upgrad
 
 ### Opening
 
-Students have course materials everywhere, but they also have personal study context that normal RAG tools forget. StudyAtlas turns both course content and student context into a persistent, personalized wiki.
+Students have course materials everywhere, but they also have personal study context that normal RAG tools forget. StudyAtlas turns EA51 course content and student context into a persistent, personalized wiki.
 
 ### Step 1: Ingest
 
-Upload syllabi or course notes.
+Upload the EA51 materials from `assets/`:
+
+- `ea51-syllabus.pdf`
+- `casestudy.pdf`
+- `EA51 Session 15 - (8.2) Case study.docx`
+- `evidencebased.pdf`
+- `hypothesisdevelopment.pdf`
+- `plausibility.pdf`
+- `Research Design.pdf`
 
 Add a short student note such as:
 
-> I struggle with hypothesis testing and often confuse claims, evidence, and interpretation.
+> I understand the readings separately, but I struggle to connect case studies, evidence, hypothesis development, and plausibility.
 
 Show that the system extracts:
 
-- courses
-- topics
-- concepts
-- assignments
-- readings
-- student weak areas
+- EA51 as the course
+- case study research design
+- evidence-based argument
+- hypothesis development
+- plausibility
+- the Zika microcephaly case study
+- the student's weak areas
 
 ### Step 2: Wiki Generation
 
 Show generated pages:
 
-- course page
-- concept page
+- EA51 course page
+- case study concept page
+- evidence-based argument concept page
 - student profile page
 - index
 
@@ -675,7 +696,7 @@ Show generated pages:
 
 Ask:
 
-> Explain how evidence connects across statistics, biology, and writing for a student who struggles with claims versus data.
+> Help me explain why the Zika microcephaly reading is a case study, and connect it to evidence-based argument, hypothesis development, and plausibility.
 
 Show answer generated from the wiki.
 
@@ -686,7 +707,7 @@ Click "Save as Study Guide."
 Show new page:
 
 ```text
-study_guides/evidence_claims_vs_data.md
+study_guides/zika_case_study_for_this_student.md
 ```
 
 ### Step 5: Lint
