@@ -1,749 +1,202 @@
 # StudyAtlas: A Personalized LLM Wiki for Students
 
-## 1. Project Summary
+> Hackathon plan — Cognee × Redis AI-Memory Hackathon, 2026-05-16.
+> Team of 4, ~2 hours of build time, 3-minute demo.
 
-**StudyAtlas** is a personalized LLM wiki for students. It turns scattered course materials, personal notes, and study activity into a persistent knowledge base that is tailored to each student.
+## 1. One-Sentence Pitch
 
-Instead of only answering questions from uploaded files, StudyAtlas builds and maintains a structured wiki that reflects:
+> StudyAtlas turns scattered course materials into a personalized wiki — and uses Redis as the *student's* working memory (what they saw recently, what's decaying, what's confusing them right now) to make every answer anchor on what that specific student already understands.
 
-- what the student is learning
-- how concepts connect across courses
-- which topics the student struggles with
-- what study context matters right now
-- which explanations and summaries were useful before
+## 2. The Hook (read first)
 
-The result is not just a course document viewer. It is a learning memory system that becomes more useful over time for one specific student.
+Two memory tiers, deliberately mapped:
 
-## 2. Core Problem
+- **Redis = the student's working memory.** Every study event — page viewed, question asked, "I get it" / "I don't get it" rating, concept brushed against in a query — is written to Redis under a `session_id`, with a TTL that mirrors the forgetting curve. Mastery state per concept lives here and *decays*.
+- **Cognee = the student's consolidated knowledge.** When a concept is reinforced across enough sessions, it's promoted into the permanent graph with a `known_as_of` timestamp. The graph holds course pages, concept pages, bridges, and the *history of what the student has actually internalized*.
 
-Students usually manage learning across many disconnected places:
+This is the load-bearing pattern the hackathon brief flags twice. Most teams will use Redis as a generic cache; we make it the cognitive working-memory analogue, which is the part judges are scoring.
 
-- course syllabi
-- lecture slides
-- reading PDFs
-- assignment instructions
-- class notes
-- personal study notes
-- office hour notes
-- saved chat answers
+## 3. The Three Required Operations
 
-Normal RAG or document Q&A tools can answer questions from these files, but they usually do not preserve long-term structure or student-specific context.
-
-This creates several problems:
-
-- knowledge does not accumulate
-- answers disappear into chat history
-- the system does not remember what this student already knows
-- the system cannot adapt explanations to the student's courses or weak areas
-- cross-course connections are easy to miss
-- there is no maintained map of the student's learning progress
-
-## 3. Proposed Solution
-
-StudyAtlas creates a persistent, personalized student wiki that grows with every upload and every useful interaction.
-
-The system maintains:
-
-- course pages
-- concept pages
-- source summary pages
-- student profile pages
-- study guide pages
-- cross-course bridge pages
-- an index
-- a changelog
-- a lint report
-
-The core idea is that the wiki is not manually maintained. The system generates and updates it automatically, using both course content and student context.
-
-## 4. Hackathon Fit
-
-The hackathon asks participants to build an Agent LLM Wiki with three base operations:
-
-1. **Ingest**
-2. **Query + Self-improve**
-3. **Lint**
-
-StudyAtlas directly implements all three.
-
-It remains hackathon-fit because the MVP is still a clear memory loop:
-
-```text
-Ingest -> Build Wiki -> Query -> Save New Knowledge -> Lint
-```
-
-The personalization layer does not make the system bigger than necessary. It simply changes what the wiki stores and how answers are shaped.
-
-## 5. Main User
-
-The main user is a university student taking multiple courses and wanting a study assistant that remembers their own context.
-
-Example users:
-
-- a first-year student trying to connect ideas across classes
-- a pre-med student balancing biology, chemistry, and statistics
-- a humanities student juggling writing-heavy courses with research methods
-- an engineering student reviewing prerequisites across math, physics, and programming
-
-## 6. Example Use Case
-
-A student uploads materials from three courses:
-
-- Introduction to Psychology
-- Statistics 101
-- Academic Writing
-
-They also add:
-
-- their own lecture notes
-- a short statement of study goals
-- a list of concepts they find confusing
-
-The system builds pages such as:
-
-- `courses/intro_to_psychology.md`
-- `courses/statistics_101.md`
-- `courses/academic_writing.md`
-- `concepts/correlation.md`
-- `concepts/evidence.md`
-- `student/profile.md`
-- `student/confusing_topics.md`
-- `study_guides/evidence_for_this_student.md`
-- `bridges/evidence_across_psychology_statistics_writing.md`
-
-The student asks:
-
-> Explain evidence in a way that helps me compare psychology, statistics, and writing, and focus on where I usually get confused.
-
-The system retrieves the relevant wiki pages, generates an answer, and saves the result as a personalized study guide or bridge page.
-
-## 7. Core Features
-
-### 7.1 Document and Context Ingestion
-
-Students upload course materials and optionally add personal context.
-
-Supported MVP inputs:
-
-- PDF syllabi
-- text notes
-- markdown files
-- assignment instructions
-- short student profile text
-- short list of weak topics or study goals
-
-The ingestion system extracts:
-
-- course name
-- course description
-- units or weeks
-- topics
-- concepts
-- learning objectives
-- assignments
-- readings
-- important terms
-- student goals
-- confusing topics
-- preferred examples or study focus
-
-This information is added to the persistent wiki.
-
-### 7.2 Personalized Living Wiki Generation
-
-The system creates and updates markdown files.
-
-Example structure:
-
-```text
-wiki/
-  courses/
-    intro_to_psychology.md
-    statistics_101.md
-    academic_writing.md
-
-  concepts/
-    evidence.md
-    correlation.md
-    hypothesis_testing.md
-
-  sources/
-    psychology_syllabus.md
-    statistics_week_1_reading.md
-    writing_assignment_guide.md
-
-  student/
-    profile.md
-    goals.md
-    confusing_topics.md
-
-  study_guides/
-    evidence_for_this_student.md
-    hypothesis_testing_review.md
-
-  bridges/
-    evidence_across_psychology_statistics_writing.md
-
-  index.md
-  changelog.md
-  lint_report.md
-```
-
-### 7.3 Query the Wiki
-
-The student can ask questions against the accumulated wiki.
-
-Example questions:
-
-- How does correlation in statistics relate to research methods in psychology?
-- What do I need to understand before hypothesis testing?
-- Which assignments require evidence-based reasoning?
-- Explain bias using examples from my current courses.
-- Which topics should I review first based on what I said I find confusing?
-
-The system retrieves relevant wiki pages and generates answers using the accumulated knowledge base plus the student's stored context.
-
-### 7.4 Query + Self-Improve
-
-A key feature is that useful answers can be saved back into the wiki.
-
-For example, if the student asks:
-
-> Compare how evidence is used in biology, statistics, and writing for someone who struggles with claims versus data.
-
-The system can generate and save:
-
-```text
-study_guides/evidence_claims_vs_data.md
-```
-
-or
-
-```text
-bridges/evidence_across_biology_statistics_writing.md
-```
-
-This makes the wiki compound over time. The next time the student asks a related question, the system can build from the saved explanation instead of reconstructing everything from raw documents.
-
-### 7.5 Lint the Wiki
-
-The lint operation checks the health of the knowledge base and the personalization layer.
-
-It detects:
-
-- concepts mentioned often but missing their own page
-- orphan pages with no inbound or outbound links
-- duplicate concept pages
-- course pages with missing assignment links
-- concepts appearing in multiple courses but missing bridge pages
-- weak prerequisite links
-- possible contradictions between pages
-- sources that were ingested but not linked to any concept
-- student weak-topic pages with no linked study guide
-- repeated question themes that should become a saved guide
-
-Example lint output:
-
-```text
-Lint Report
-
-1. Missing concept page: "correlation vs causation"
-   Mentioned in psychology_syllabus.md and statistics_week_2.md.
-
-2. Weak bridge: "evidence"
-   Appears in Psychology, Statistics, and Writing, but no bridge page exists.
-
-3. Missing personalized guide: "hypothesis testing"
-   Marked as a confusing topic in student/confusing_topics.md but no study guide exists.
-
-4. Orphan page: "week_1_notes.md"
-   This page has no links to course or concept pages.
-```
-
-## 8. Most Creative Feature: Personalized Concept Bridge Generator
-
-The Personalized Concept Bridge Generator explains how the same concept appears across multiple courses, but adapted to one student's learning needs.
-
-Example input:
-
-```text
-Concept: evidence
-Courses: Statistics, Biology, Writing
-Student difficulty: separating claims, data, and interpretation
-```
-
-Example output:
-
-```text
-# Evidence Across Statistics, Biology, and Writing
-
-## What This Student Keeps Mixing Up
-The student often blends together raw data, interpretation, and argument.
-
-## Statistics
-Evidence often means data patterns, uncertainty, confidence intervals, and inference.
-
-## Biology
-Evidence often means experimental observations, mechanisms, measurements, and reproducible findings.
-
-## Writing
-Evidence often means information selected and structured to support a thesis for an audience.
-
-## Cross-Course Connection
-Across these courses, evidence is not just "facts." It is information used to justify a claim under the standards of a specific discipline.
-
-## Personalized Study Insight
-Before using evidence, ask:
-1. What is the claim?
-2. What counts as evidence in this course?
-3. Am I describing data, interpreting it, or arguing from it?
-4. What assumption connects the evidence to the claim?
-```
-
-This is the main demo moment because it shows memory, synthesis, and personalization in one step.
-
-## 9. Why This Is More Than a Chatbot
-
-A normal chatbot answers one question at a time.
-
-StudyAtlas maintains a growing, personalized knowledge structure.
-
-| Normal Chatbot / RAG | StudyAtlas |
+| Operation | What StudyAtlas does |
 |---|---|
-| Retrieves chunks from raw documents | Maintains a persistent student wiki |
-| Answers disappear into chat history | Useful answers become wiki pages |
-| No student memory | Stores goals, weak areas, and saved guides |
-| Weak cross-document memory | Builds cross-course concept bridges |
-| No health check | Lint detects gaps, missing links, and missing guides |
+| **Ingest** | Pulls syllabi, readings, notes, and a short "what I'm confused about" note into the wiki. Each event also seeds Redis with initial mastery state per concept. |
+| **Query + Self-improve** | Answers questions against the wiki, anchored on the student's strong areas. After each run, a `SkillRunEntry` proposes a rewrite of the `personalized-explainer` skill; we apply it explicitly. **Before/after on the same question is the demo's money shot.** |
+| **Lint** | Surfaces gaps: missing concept pages, weak bridges, *and forgotten concepts* (mastery state has decayed past a threshold without consolidation). |
 
-## 10. MVP Scope
+## 4. Why This Wins
 
-For the hackathon, do not build a full academic platform.
+- **Redis is genuinely load-bearing**, not decorative. TTL = forgetting curve, mastery state in Redis, distillation rule from Redis → graph is explicit.
+- **Self-improvement has a visible diff**: a `SKILL.md` rewrite shown live in the demo.
+- **Pain is universal** — every student forgets, every wiki is dead text. StudyAtlas connects the two.
 
-Build a small, clear, working demo.
+## 5. Demo Script (3 minutes, optimized for the money shot)
 
-### MVP Inputs
+| Time | What happens |
+|---|---|
+| 0:00–0:20 | **Hook.** "Students forget. Wikis don't. Here's why that gap matters." |
+| 0:20–0:50 | **Ingest.** Drop 2 syllabi + a "things I'm confused about" note. Wiki pages appear. Show Redis populated with initial mastery state. |
+| 0:50–1:30 | **Baseline query.** Ask: *"Explain hypothesis testing using something I already understand."* Generic answer. Student rates 0.3. Show the Redis session log + mastery-decay panel. |
+| 1:30–2:10 | **Self-improve.** Click "Improve." `SkillRunEntry` records the failure → cognee proposes a `personalized-explainer` rewrite that anchors on writing/argumentation (the student's strong area). **Show the SKILL.md diff on screen.** Apply it. |
+| 2:10–2:40 | **Improved query.** Same question. New answer anchors on argument structure. Score jumps to 0.8. |
+| 2:40–3:00 | **Lint + close.** Run lint — surfaces a *forgotten* concept (mastery decayed past threshold) plus a missing bridge. Close: "Redis is the student's working memory, Cognee is their consolidated knowledge. The wiki learns *this* student." |
 
-- 2 to 4 course syllabi
-- 1 to 2 extra readings or notes
-- 1 short student profile or weak-topics note
-
-### MVP Outputs
-
-- generated course pages
-- generated concept pages
-- generated student profile page
-- generated personalized study guide or bridge page
-- search/query answer
-- lint report
-
-### MVP Demo Flow
+## 6. Architecture
 
 ```text
-1. Upload 2-4 course materials.
-2. Add a short student context note.
-3. Click "Build Wiki."
-4. Show generated course pages, concept pages, and student profile page.
-5. Ask a personalized cross-course question.
-6. Save the answer as a study guide or bridge page.
-7. Run lint.
-8. Show missing concepts, weak links, or suggested personalized guides.
+                  [ student ]
+                       |
+                       v
+   +-------------------------------------------+
+   |  FastAPI backend                          |
+   |   - /ingest, /query, /improve, /lint      |
+   +----------------+--------------------------+
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
+   +----------+         +-------------------+
+   | Redis    |         | Cognee            |
+   | session  |         | permanent graph   |
+   | memory   |  ---->  | + skills          |
+   | (TTL =   |  promote| + SKILL.md        |
+   | forget)  |         |                   |
+   +----------+         +-------------------+
 ```
 
-## 11. Suggested Tech Stack
+**Redis stores per `session_id`:**
+- raw study events (page viewed, query asked, rating given)
+- per-concept `mastery_state` (float 0..1, TTL decays over hours/days)
+- recent query history for the current study session
 
-### Backend
+**Distillation rule (Redis → Cognee):**
+A concept gets `cognee.remember(...)`'d with a `known_as_of` timestamp when:
+- it's referenced positively across ≥ N sessions, OR
+- the student explicitly rates a related answer ≥ 0.7, OR
+- a `bridge` page touching it is saved.
 
-- Python
-- FastAPI
-- Markdown file storage
-- JSON metadata
-- Optional: Cognee if API access is available
+**Cognee stores:**
+- course pages, concept pages, source pages, bridge pages
+- the `personalized-explainer` skill (rewritten via the propose/apply loop)
+- consolidated concept history with timestamps
 
-### Search
+## 7. The Self-Improvement Loop (this is the differentiator)
 
-Start simple:
+Single skill: `my_skills/personalized-explainer/SKILL.md`.
 
-- keyword search
-- BM25
-- fuzzy matching
+```markdown
+---
+description: Explain concepts to this student by anchoring on what they already understand.
+allowed-tools: memory_search
+---
 
-Optional upgrade:
+# Instructions
 
-- embeddings
-- vector search
-- Cognee memory engine
-
-### Graph
-
-- NetworkX for concept graph
-
-### Frontend
-
-- React
-- Tailwind CSS
-- simple upload page
-- wiki viewer
-- query box
-- graph view
-- lint report panel
-
-## 12. File and Folder Structure
-
-```text
-studyatlas/
-  backend/
-    main.py
-    ingest.py
-    parser.py
-    extractor.py
-    wiki_writer.py
-    search.py
-    query.py
-    lint.py
-    graph.py
-
-  frontend/
-    src/
-      App.jsx
-      components/
-        UploadPanel.jsx
-        WikiViewer.jsx
-        QueryBox.jsx
-        GraphView.jsx
-        LintReport.jsx
-
-  raw_materials/
-    syllabi/
-    readings/
-    notes/
-    student_context/
-
-  wiki/
-    courses/
-    concepts/
-    sources/
-    student/
-    study_guides/
-    bridges/
-    index.md
-    changelog.md
-    lint_report.md
-
-  metadata/
-    courses.json
-    concepts.json
-    graph.json
-    source_log.json
-    student_profile.json
+When answering, retrieve the student's profile and recent mastery state.
+Anchor new concepts on areas where mastery is high.
+Avoid metaphors from areas the student has rated low.
 ```
 
-## 13. Backend Modules
+Loop, lifted from the hackathon brief:
+
+1. Student asks a question → `cognee.search(query_type=AGENTIC_COMPLETION, skills=["personalized-explainer"], session_id=...)`.
+2. Student rates the answer (0..1). We compute `success_score`.
+3. `cognee.remember(SkillRunEntry(...), skill_improvement={"apply": False, "score_threshold": 0.7})` → cognee **proposes** a rewrite.
+4. We display the proposed `SKILL.md` diff and call `improve_skill(..., apply=True)`.
+5. Same question, re-run, new answer. Score jumps. **This is the demo moment.**
+
+## 8. Backend Modules (only what we'll actually build)
+
+| Module | Purpose | Owner |
+|---|---|---|
+| `backend/memory.py` | Wraps cognee. Adds `session_id` routing, `mastery_state` read/write to Redis with TTL, distillation rule. | P1 |
+| `backend/ingest.py` | Reads PDFs/markdown, extracts concept list, seeds Redis mastery state, writes initial wiki pages. | P1 |
+| `backend/query.py` | Calls `cognee.search` with `personalized-explainer` skill. Returns answer + the concepts it leaned on. | P2 |
+| `backend/improve.py` | Wraps `SkillRunEntry` + `improve_skill`. Returns the proposed SKILL.md diff. | P2 |
+| `backend/lint.py` | Three rules: missing concept pages, weak bridges, **forgotten concepts** (mastery < threshold, last_seen > N days). | P4 |
+| `backend/graph.py` | Concept graph as JSON. Nodes carry `mastery` + `known_as_of`. | P3 |
+
+## 9. Frontend (only the demo panels)
+
+- **Upload panel** — drag/drop syllabi + a confusion note.
+- **Wiki viewer** — read generated pages.
+- **Query panel** — ask question, see answer, rate 0..1.
+- **Mastery timeline** (new, demo-critical) — small chart of mastery state per concept, pulled from Redis. Shows decay visually.
+- **Skill diff viewer** (new, demo-critical) — renders the `SKILL.md` before/after when `improve` proposes a rewrite.
+- **Graph view** — NetworkX → JSON → simple force layout. Nodes colored by mastery.
+- **Lint panel** — list of issues, with "forgotten concepts" highlighted.
+
+## 10. Four-Person Split
+
+### P1 — Redis + memory layer (the hackathon's load-bearing piece)
+1. `backend/memory.py`: wire `session_id` end-to-end. Function `set_mastery(concept, score, ttl)` and `get_mastery_state()` over Redis.
+2. Forgetting-curve TTL (use real seconds for demo speed, e.g., 60s = 1 "day").
+3. Distillation rule: positive references across ≥ 2 sessions → `cognee.remember(..., metadata={"known_as_of": ts})`.
+
+### P2 — Skill loop (the demo money shot)
+1. Author `my_skills/personalized-explainer/SKILL.md`.
+2. `backend/query.py`: wire `cognee.search(skills=[...], session_id=...)`.
+3. `backend/improve.py`: `SkillRunEntry` + `improve_skill(apply=True)`. Return the SKILL.md diff as part of the response.
+4. Seed one canned scenario where baseline answer fails and the rewrite obviously wins.
+
+### P3 — Frontend (focus on the two demo-critical panels)
+1. Mastery timeline (reads `/mastery-state`).
+2. Skill diff viewer (renders `/improve` response).
+3. Graph view if time. Wire color by mastery.
+
+### P4 — Lint + demo data + pitch
+1. `backend/lint.py`: three rules including the forgotten-concepts rule.
+2. Prep the demo dataset: 2 syllabi (psychology + statistics works well — they share concepts), 1 student confusion note ("I'm strong on writing arguments, weak on stats notation").
+3. Write and time the 3-minute script. Run it twice before submission.
+
+## 11. API (minimal surface)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/ingest` | Upload a document or note |
+| POST | `/query` | Ask a question, returns answer + concepts touched |
+| POST | `/rate` | Rate an answer 0..1 → triggers `SkillRunEntry` |
+| POST | `/improve` | Apply a proposed skill rewrite, returns the diff |
+| GET | `/mastery-state` | Current Redis mastery state for the active session |
+| GET | `/lint` | Lint report |
+| GET | `/graph` | Concept graph JSON |
+| GET | `/wiki/pages`, `/wiki/page/{path}` | Wiki browse |
+
+## 12. Self-Improvement Evidence (for the submission)
+
+| | Baseline | After improve |
+|---|---|---|
+| Question | "Explain hypothesis testing using something I already understand." | (same) |
+| Answer style | Textbook definition, generic examples | Anchored on argument structure (student's strong area) |
+| `success_score` | 0.3 | 0.8 |
+| Skill change | — | SKILL.md gains a rule: "for this student, always tie statistical inference back to argument/claim structure" |
+
+The SKILL.md diff is the artifact we paste into the submission.
+
+## 13. What We're Explicitly Not Building
+
+- Multi-agent framework
+- Auth, user accounts
+- Production PDF parsing (use easy PDFs in the demo set)
+- Multiple skill files (one is enough to show the loop)
+- Embeddings/vector search beyond what cognee gives us out of the box
+- Pretty graph layouts (force-directed default is fine)
+- A learning analytics dashboard
+
+## 14. Risk Register
+
+| Risk | Mitigation |
+|---|---|
+| Cognee skill rewrite produces a bad proposal in front of judges | Pre-run the loop once; if the proposal is good, freeze that exact run as the demo. We can replay against a canned dataset. |
+| Redis distillation rule is invisible to judges | Mastery timeline panel + a small "promoted to graph" toast when distillation fires. |
+| 3 minutes is tight | Don't introduce, don't read slides — start typing into the upload box at 0:20. |
+| One person blocks another | P2 can develop against a stubbed `memory.py`; P3 can develop against stubbed API responses. Agree on response shapes in the first 10 minutes. |
+
+## 15. First 15 Minutes (parallel kickoff)
+
+1. P1 starts Redis, smoke-tests cognee with `test.py`.
+2. P2 writes the SKILL.md and stubs `/query` + `/improve` return shapes.
+3. P3 wires the frontend to those stubbed shapes.
+4. P4 picks the two syllabi, writes the confusion note, drafts the demo script.
 
-### `ingest.py`
-
-Responsible for processing uploaded files and student context.
-
-Tasks:
-
-- read file text
-- identify source type
-- extract metadata
-- capture student profile notes
-- send extracted data to wiki writer
-
-### `extractor.py`
-
-Responsible for extracting concepts and lightweight personalization signals.
-
-For MVP, this can use rules:
-
-- headings
-- repeated terms
-- known concept lists
-- assignment keywords
-- simple labels from student notes such as weak topics or goals
-
-Optional LLM upgrade:
-
-- extract concepts with an LLM
-- generate summaries
-- identify prerequisite relationships
-- generate tailored explanations
-
-### `wiki_writer.py`
-
-Responsible for creating and updating markdown pages.
-
-Tasks:
-
-- create course pages
-- create concept pages
-- create source summary pages
-- create student profile pages
-- create study guide pages
-- update index
-- update changelog
-
-### `search.py`
-
-Responsible for finding relevant wiki pages.
-
-MVP approach:
-
-- BM25 or keyword matching over markdown files
-
-### `query.py`
-
-Responsible for answering questions from the wiki.
-
-MVP approach:
-
-- retrieve relevant pages
-- include student profile context if available
-- generate a structured answer from snippets
-- optionally save answer as a bridge page or study guide
-
-### `lint.py`
-
-Responsible for checking wiki health.
-
-Rules:
-
-- concept mentioned multiple times but no page exists
-- page has no links
-- concept appears in multiple courses but no bridge exists
-- source not linked to any concept
-- student weak topic has no linked study guide
-
-### `graph.py`
-
-Responsible for concept graph generation.
-
-Nodes:
-
-- courses
-- concepts
-- sources
-- student topics
-- study guides
-- bridge pages
-
-Edges:
-
-- course contains concept
-- source mentions concept
-- concept relates to concept
-- bridge connects concept across courses
-- study guide targets concept
-- student profile marks topic as important
-
-## 14. Team Split for Two People
-
-### Person 1: Backend and Memory Engine
-
-Responsibilities:
-
-- file ingestion
-- text parsing
-- concept extraction
-- student context extraction
-- wiki generation
-- search/query logic
-- lint logic
-- backend API endpoints
-
-Suggested priority:
-
-1. ingest
-2. wiki generation
-3. search/query
-4. lint
-
-### Person 2: Frontend and Demo Experience
-
-Responsibilities:
-
-- upload UI
-- student context input box
-- wiki page viewer
-- query interface
-- lint report display
-- graph visualization
-- demo script
-- final pitch
-
-Suggested priority:
-
-1. simple upload page
-2. student context input
-3. generated wiki viewer
-4. query box
-5. lint panel
-6. graph view if time allows
-
-## 15. API Endpoints
-
-Example FastAPI endpoints:
-
-```text
-POST /ingest
-Upload and process documents.
-
-POST /student-context
-Save short student profile, goals, or confusing topics.
-
-GET /wiki/pages
-List generated wiki pages.
-
-GET /wiki/page/{path}
-Read a wiki page.
-
-POST /query
-Ask a question against the wiki.
-
-POST /save-answer
-Save a useful answer as a wiki page.
-
-GET /lint
-Run lint and return the lint report.
-
-GET /graph
-Return the concept graph as JSON.
-```
-
-## 16. Optional Cognee Integration
-
-Cognee can be used as the memory backend if API access is available.
-
-However, Cognee is not strictly required for the MVP.
-
-Without Cognee, StudyAtlas can still demonstrate the core idea using:
-
-- markdown files
-- JSON metadata
-- keyword search
-- graph relationships
-- rule-based linting
-
-If Cognee is available, use it for:
-
-- concept extraction
-- semantic retrieval
-- memory storage
-- cross-document synthesis
-- self-improvement suggestions
-- personalized study guidance
-
-Recommended strategy:
-
-Build the local markdown-based system first. Then make Cognee an optional upgrade layer.
-
-## 17. Demo Script
-
-### Opening
-
-Students have course materials everywhere, but they also have personal study context that normal RAG tools forget. StudyAtlas turns both course content and student context into a persistent, personalized wiki.
-
-### Step 1: Ingest
-
-Upload syllabi or course notes.
-
-Add a short student note such as:
-
-> I struggle with hypothesis testing and often confuse claims, evidence, and interpretation.
-
-Show that the system extracts:
-
-- courses
-- topics
-- concepts
-- assignments
-- readings
-- student weak areas
-
-### Step 2: Wiki Generation
-
-Show generated pages:
-
-- course page
-- concept page
-- student profile page
-- index
-
-### Step 3: Query
-
-Ask:
-
-> Explain how evidence connects across statistics, biology, and writing for a student who struggles with claims versus data.
-
-Show answer generated from the wiki.
-
-### Step 4: Self-Improve
-
-Click "Save as Study Guide."
-
-Show new page:
-
-```text
-study_guides/evidence_claims_vs_data.md
-```
-
-### Step 5: Lint
-
-Run lint.
-
-Show suggestions:
-
-- missing concept page
-- weak bridge
-- missing study guide for a weak topic
-- orphan page
-
-### Closing
-
-StudyAtlas is not just a chatbot. It is a persistent learning memory system that adapts to a student's own courses and confusion points, and becomes more useful over time.
-
-## 18. Final Pitch
-
-> StudyAtlas is a personalized LLM wiki for students. It turns scattered course materials and student study context into a persistent knowledge base that grows with every document and every question. Instead of re-reading raw files every time, it maintains course pages, concept pages, personalized study guides, cross-course bridges, and lint reports over time.
-
-## 19. One-Sentence Version
-
-> StudyAtlas helps students turn course materials and personal study context into a living wiki that explains concepts, connects ideas across courses, and improves itself over time.
-
-## 20. What Not to Build
-
-Avoid overbuilding.
-
-Do not focus on:
-
-- training a new LLM
-- building a full agent framework
-- multi-agent systems
-- complex authentication
-- production-scale databases
-- perfect UI
-- perfect PDF parsing
-- detailed learning analytics dashboards
-
-For the hackathon, the important thing is a clear working memory loop:
-
-```text
-Ingest -> Build Wiki -> Query -> Save New Knowledge -> Lint
-```
-
-## 21. Success Criteria
-
-The demo is successful if it clearly shows:
-
-- raw course materials become structured wiki pages
-- the wiki persists after ingestion
-- the system stores student-specific context
-- the system can answer from the wiki with personalization
-- a useful answer can be saved back into the wiki
-- the lint system can detect gaps, weak links, or missing personalized guides
-
-The key message is:
-
-> Knowledge should compound over time, and it should compound in a way that is useful to the specific student asking for help.
+Sync at 15 minutes on response shapes, then go heads-down until the 60-minute mark.
