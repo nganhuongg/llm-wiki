@@ -1,6 +1,12 @@
 from pathlib import Path
 import os
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = ROOT / "assets"
 WIKI_DIR = ROOT / "wiki"
@@ -32,6 +38,15 @@ DECAY_THRESHOLD = float(os.getenv("DECAY_THRESHOLD", "0.4"))
 DECAY_BASE_SECONDS = int(os.getenv("DECAY_BASE_SECONDS", str(24 * 60 * 60)))
 DECAY_TTL_SECONDS = max(int(DECAY_BASE_SECONDS / DEMO_TIME_SCALE), 5)
 COGNEE_TIMEOUT_SECONDS = float(os.getenv("COGNEE_TIMEOUT_SECONDS", "8"))
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()
+LLM_API_KEY = (
+    os.getenv("LLM_API_KEY")
+    or os.getenv("OPENAI_API_KEY")
+    or os.getenv("ANTHROPIC_API_KEY")
+    or ""
+)
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
 
 for d in (
     ASSETS_DIR,

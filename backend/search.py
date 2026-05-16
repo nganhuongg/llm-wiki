@@ -18,7 +18,14 @@ def _tokenize(text: str) -> list[str]:
 def _all_pages() -> list[Path]:
     return [
         p
-        for d in (config.COURSES_DIR, config.CONCEPTS_DIR, config.SOURCES_DIR, config.BRIDGES_DIR)
+        for d in (
+            config.COURSES_DIR,
+            config.CONCEPTS_DIR,
+            config.SOURCES_DIR,
+            config.BRIDGES_DIR,
+            config.STUDENT_DIR,
+            config.STUDY_GUIDES_DIR,
+        )
         for p in d.glob("*.md")
     ]
 
