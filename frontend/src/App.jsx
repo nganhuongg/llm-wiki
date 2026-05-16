@@ -115,6 +115,15 @@ export default function App() {
     }
   }, [masteryState])
 
+  const boostConcepts = (slugs, amount) => {
+    if (!slugs.length) return
+    setMasteryState(prev => prev.map(c =>
+      slugs.includes(c.slug)
+        ? { ...c, score: Math.min(1, c.score + amount), knownAsOf: new Date().toISOString() }
+        : c
+    ))
+  }
+
   const dismissToast = id => setToastQueue(q => q.filter(t => t.id !== id))
 
   const handleWikiBuilt = () => {
@@ -153,7 +162,7 @@ export default function App() {
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         {activeTab === 'ingest'  && <UploadPanel onWikiBuilt={handleWikiBuilt} />}
         {activeTab === 'wiki'    && <WikiViewer  ready={wikiReady} masteryState={masteryState} />}
-        {activeTab === 'query'   && <QueryBox    masteryState={masteryState} />}
+        {activeTab === 'query'   && <QueryBox    masteryState={masteryState} onConceptBoost={boostConcepts} />}
         {activeTab === 'mastery' && <MasteryTimeline masteryState={masteryState} />}
         {activeTab === 'graph'   && <GraphView   masteryState={masteryState} />}
         {activeTab === 'lint'    && <LintReport  masteryState={masteryState} />}
