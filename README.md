@@ -260,22 +260,34 @@ Output goes to `frontend/dist/`.
 
 | Tab | What it does |
 |-----|-------------|
-| Ingest | Drag-and-drop course files (PDF, TXT, MD, DOCX) and add a student context note, then click Build Wiki |
-| Wiki | Browse generated wiki pages by folder (courses, concepts, bridges, student, study\_guides) and read them rendered as markdown |
-| Query | Ask personalized cross-course questions, see which pages were used as sources, and save useful answers as study guides |
-| Graph | Interactive force-directed visualization of the concept graph, color-coded by node type |
-| Lint | Filterable lint report showing missing pages, orphan pages, weak bridges, and personalization gaps |
+| Ingest | Select files from `assets/` or drag-and-drop new ones; add a student context note; click Build Wiki |
+| Wiki | Browse generated wiki pages by folder; renders markdown. Falls back to embedded EA51 demo pages when the backend is not yet running |
+| Query | Ask a question, rate the answer (0–1), click Improve to trigger the skill rewrite loop, view the SKILL.md before/after diff |
+| Mastery | Live Redis mastery bars per concept, polled every 2 s; color-coded green/amber/red with a 40% threshold line |
+| Graph | Force-directed concept graph; concept nodes colored by mastery score |
+| Lint | Filterable lint report (error / warning / info) |
+
+### Demo-critical UI (P4 items from plan §9)
+
+- **MasteryTimeline** — large animated bars readable from the back of the room; fading concepts pulse red
+- **DecayToast** — SSE-driven floating card that fires when a concept drops below 40% mastery; shows the past-self page + `known_as_of` timestamp
+- **SkillDiff** — side-by-side before/after SKILL.md diff with line-level +/- highlighting
+- **MasteryBadge** — compact header chip showing the lowest-mastery concept at all times; pulses red when below threshold
 
 ### Component structure
 
 ```text
 frontend/src/
-  App.jsx                       Tab shell and navigation header
+  session.js                    Persistent session ID (localStorage)
+  App.jsx                       Tab shell, header with MasteryBadge, DecayToast always mounted
   components/
-    UploadPanel.jsx             File upload and student context input
-    WikiViewer.jsx              Sidebar page list and markdown viewer
-    QueryBox.jsx                Query input, example questions, save-as-study-guide
-    GraphView.jsx               Force-directed concept graph
+    UploadPanel.jsx             Assets checklist + drag-and-drop upload + student context
+    WikiViewer.jsx              Sidebar page list + markdown viewer; embedded EA51 demo pages
+    QueryBox.jsx                Query, rating widget (0.1–1.0), Improve button, SkillDiff
+    MasteryTimeline.jsx         Live mastery bars from GET /mastery-state (polls every 2 s)
+    DecayToast.jsx              SSE subscriber for GET /events/decay; sliding toast cards
+    SkillDiff.jsx               Before/after SKILL.md diff viewer (no external deps)
+    GraphView.jsx               Force-directed graph; concept nodes colored by mastery
     LintReport.jsx              Filterable lint issues with severity badges
 ```
 
