@@ -1,0 +1,13 @@
+cognee==1.1.0
+redis==5.3.1
+
+fastapi==0.136.1
+uvicorn[standard]==0.47.0
+python-multipart>=0.0.20
+
+pydantic-settings>=2.7.0
+python-dotenv>=1.0.1
+
+pypdf>=5.1.0
+rank-bm25>=0.2.2
+networkx>=3.4.2
