@@ -209,20 +209,24 @@ uvicorn backend.main:app --reload
 The backend listens at `http://localhost:8000` and exposes:
 
 ```text
+GET  /assets               List files in the assets/ folder (name, size)
+POST /ingest-assets        Ingest a single file from assets/ by filename
 POST /ingest               Upload a course file. Seeds mastery sorted set, logs XADD event
 POST /query                Answer a question via cognee.search(skills=[...], session_id=...)
 POST /rate                 Rate an answer 0..1. ZINCRBY mastery, write SkillRunEntry
 POST /improve              Apply a proposed skill rewrite, return the SKILL.md diff
 GET  /mastery-state        Current Redis mastery sorted set for the active session
 GET  /events/decay         SSE stream of decay:warn pub/sub events (powers the toast)
-GET  /lint                 Lint report including the fading-concepts rule
-GET  /graph                Concept graph JSON (nodes carry mastery + known_as_of)
 GET  /wiki/pages           List all generated wiki pages
 GET  /wiki/page/{path}     Read the markdown content of a single page
 POST /save-answer          Save a useful answer as a study guide or bridge page
+GET  /lint                 Lint report including the fading-concepts rule
+GET  /graph                Concept graph JSON (nodes carry mastery + known_as_of)
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI UI.
+
+Course materials for the demo are pre-placed in `assets/`. The frontend fetches them via `GET /assets` and ingests selected files via `POST /ingest-assets` — no manual upload required.
 
 ## Frontend
 
