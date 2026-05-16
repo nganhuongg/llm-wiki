@@ -167,7 +167,7 @@ results = await cognee.recall(
 )
 ```
 
-## Planned Backend Run Command
+## Backend
 
 Once the FastAPI backend is added, run it with:
 
@@ -175,17 +175,68 @@ Once the FastAPI backend is added, run it with:
 uvicorn backend.main:app --reload
 ```
 
-The planned API surface is:
+The backend listens at `http://localhost:8000` and exposes:
 
 ```text
-POST /ingest
-POST /student-context
-GET  /wiki/pages
-GET  /wiki/page/{path}
-POST /query
-POST /save-answer
-GET  /lint
-GET  /graph
+POST /ingest               Upload a course file and extract content into the wiki
+POST /student-context      Save a student profile note (goals, weak topics)
+GET  /wiki/pages           List all generated wiki pages
+GET  /wiki/page/{path}     Read the markdown content of a single page
+POST /query                Answer a question from the wiki with personalization
+POST /save-answer          Save a useful answer as a study guide or bridge page
+GET  /lint                 Run the lint check and return a structured report
+GET  /graph                Return the concept graph as JSON (nodes + edges)
+```
+
+## Frontend
+
+The frontend is a React + Tailwind CSS app in `frontend/`.
+
+### Requirements
+
+- Node.js 18 or later
+- npm 9 or later
+
+### Install and run
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The dev server starts at `http://localhost:5174`.
+
+### Build for production
+
+```bash
+cd frontend
+npm run build
+```
+
+Output goes to `frontend/dist/`.
+
+### Tabs
+
+| Tab | What it does |
+|-----|-------------|
+| Ingest | Drag-and-drop course files (PDF, TXT, MD, DOCX) and add a student context note, then click Build Wiki |
+| Wiki | Browse generated wiki pages by folder (courses, concepts, bridges, student, study\_guides) and read them rendered as markdown |
+| Query | Ask personalized cross-course questions, see which pages were used as sources, and save useful answers as study guides |
+| Graph | Interactive force-directed visualization of the concept graph, color-coded by node type |
+| Lint | Filterable lint report showing missing pages, orphan pages, weak bridges, and personalization gaps |
+
+### Component structure
+
+```text
+frontend/src/
+  App.jsx                       Tab shell and navigation header
+  components/
+    UploadPanel.jsx             File upload and student context input
+    WikiViewer.jsx              Sidebar page list and markdown viewer
+    QueryBox.jsx                Query input, example questions, save-as-study-guide
+    GraphView.jsx               Force-directed concept graph
+    LintReport.jsx              Filterable lint issues with severity badges
 ```
 
 ## Project Files
@@ -195,6 +246,7 @@ courseatlas_project_plan.md   Project plan and hackathon scope
 docs/setup_guideline.md       Hackathon setup and Cognee/Redis reference
 requirements.txt              Python dependencies
 test.py                       Minimal Cognee smoke test
+frontend/                     React + Tailwind CSS frontend
 ```
 
 ## Useful Cognee CLI Commands

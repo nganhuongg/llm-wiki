@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+    font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  .prose-wiki h1 { @apply text-2xl font-bold text-gray-900 mb-3 mt-4; }
+  .prose-wiki h2 { @apply text-xl font-semibold text-gray-800 mb-2 mt-4; }
+  .prose-wiki h3 { @apply text-lg font-semibold text-gray-700 mb-1 mt-3; }
+  .prose-wiki p  { @apply text-gray-700 mb-3 leading-relaxed; }
+  .prose-wiki ul { @apply list-disc pl-5 mb-3 space-y-1 text-gray-700; }
+  .prose-wiki ol { @apply list-decimal pl-5 mb-3 space-y-1 text-gray-700; }
+  .prose-wiki code { @apply bg-gray-100 text-sky-700 px-1 py-0.5 rounded text-sm font-mono; }
+  .prose-wiki pre  { @apply bg-gray-100 rounded p-3 mb-3 overflow-x-auto; }
+  .prose-wiki pre code { @apply bg-transparent p-0; }
+  .prose-wiki strong { @apply font-semibold text-gray-900; }
+  .prose-wiki blockquote { @apply border-l-4 border-sky-300 pl-4 italic text-gray-600 mb-3; }
+  .prose-wiki a { @apply text-sky-600 hover:underline; }
+  .prose-wiki hr { @apply border-gray-200 my-4; }
+}

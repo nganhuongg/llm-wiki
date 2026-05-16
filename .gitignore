@@ -1,2 +1,8 @@
 .venv/
 .env
+
+# Node / npm
+node_modules/
+dist/
+.npm
+*.local
