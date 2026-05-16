@@ -347,7 +347,7 @@ function groupByFolder(pages) {
   return groups
 }
 
-export default function WikiViewer() {
+export default function WikiViewer({ ready = false }) {
   const [pages, setPages]       = useState([])
   const [selected, setSelected] = useState(null)
   const [content, setContent]   = useState('')
@@ -355,7 +355,8 @@ export default function WikiViewer() {
   const [search, setSearch]     = useState('')
   const [demoMode, setDemoMode] = useState(false)
 
-  useEffect(() => { fetchPages() }, [])
+  // Only load pages once the wiki has been built
+  useEffect(() => { if (ready) fetchPages() }, [ready])
 
   const fetchPages = async () => {
     setLoading(true)
@@ -367,11 +368,12 @@ export default function WikiViewer() {
         if (real.length > 0) {
           setPages(real)
           setDemoMode(false)
+          setLoading(false)
           return
         }
       }
     } catch { /* fall through to mock */ }
-    // Backend not ready or wiki empty → show mock EA51 pages
+    // Backend not ready or wiki empty → show pre-built EA51 demo pages
     setPages(MOCK_INDEX)
     setDemoMode(true)
     setLoading(false)
@@ -436,6 +438,12 @@ export default function WikiViewer() {
 
         <div className="flex-1 overflow-y-auto">
           {loading && <p className="text-xs text-gray-400 text-center p-4">Loading…</p>}
+          {!ready && !loading && (
+            <div className="p-5 text-center">
+              <p className="text-xs text-gray-400">Go to Ingest and click</p>
+              <p className="text-xs font-semibold text-sky-600 mt-0.5">🚀 Build Wiki</p>
+            </div>
+          )}
           {Object.entries(groups).map(([folder, items]) => (
             <div key={folder} className="mb-1">
               <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
@@ -482,10 +490,11 @@ export default function WikiViewer() {
             <div className="text-5xl mb-4">📄</div>
             <p className="text-gray-500 font-medium">Select a page from the sidebar</p>
             <p className="text-gray-400 text-sm mt-1">
-              {demoMode
-                ? `${pages.length} demo pages ready — real pages load after the backend is up`
-                : `${pages.length} page${pages.length !== 1 ? 's' : ''} available`
-              }
+              {!ready
+                ? 'Go to Ingest and click Build Wiki first.'
+                : demoMode
+                ? `${pages.length} demo pages ready`
+                : `${pages.length} page${pages.length !== 1 ? 's' : ''} available`}
             </p>
           </div>
         )}
