@@ -1,8 +1,6 @@
-# CourseAtlas
+# StudyAtlas
 
-A self-improving LLM wiki for university courses. Turns scattered course materials (syllabi, readings, notes) into a persistent, connected knowledge base that compounds with every document and every question.
-
-Built for the **Cognee × Redis AI-Memory Hackathon** (2026-05-16). See [`courseatlas_project_plan.md`](./courseatlas_project_plan.md) for the full design.
+StudyAtlas is a personalized LLM wiki for students. It uses Cognee as long-term memory, Redis as session memory, and markdown files as the visible wiki artifact for the hackathon demo.
 
 The core loop is:
 
@@ -10,173 +8,246 @@ The core loop is:
 Ingest -> Build Wiki -> Query + Self-Improve -> Lint
 ```
 
-## Stack
-
-- **Backend:** FastAPI + cognee (memory engine) + markdown/JSON storage
-- **Frontend:** React + Vite + Tailwind
-- **Session memory:** Redis (fast scratchpad for in-progress conversations)
-- **Long-term memory:** Cognee knowledge graph (durable, cross-session)
-
-## Project layout
-
-```text
-backend/         FastAPI app: ingest, extract, wiki, query, lint, graph
-frontend/        Vite + React UI
-raw_materials/   Uploaded files (syllabi, readings, notes)
-wiki/            Generated markdown pages (courses, concepts, sources, bridges)
-metadata/        JSON sidecars (courses.json, concepts.json, graph.json)
-```
-
-## Memory Model
-
-CourseAtlas runs on two tiers of memory — this is the core hackathon pattern.
-
-```text
-                    [ student / agent ]
-                          |
-                          v
-          +---------------------------------+
-          | Redis  - session memory         |  fast, ephemeral
-          |  (current upload, draft answer, |  per-conversation
-          |   recent questions)             |
-          +----------------+----------------+
-                           | distillation
-                           v
-          +---------------------------------+
-          | Cognee - permanent memory       |  structured, durable
-          |  (course pages, concepts,       |  cross-session
-          |   bridges, skills, summaries)   |
-          +---------------------------------+
-```
-
-Routing maps directly onto cognee's `session_id`:
-
-```python
-import cognee
-
-# Goes to Redis session memory - fast cache, syncs to graph in background
-await cognee.remember(
-    "Student is asking about hypothesis testing.",
-    session_id="study_session_1",
-)
-
-# Goes straight to the permanent knowledge graph
-await cognee.remember("Hypothesis testing compares a null and alternative claim under data.")
-
-# Recall queries session memory first, falls through to the graph
-await cognee.recall("What is the student working on?", session_id="study_session_1")
-```
-
 ## Requirements
 
-- Python 3.10 - 3.14 (project pinned to 3.12 via `uv`)
-- Docker (for Redis)
-- An LLM API key — provided at hackathon kickoff, or use any [Cognee-supported provider](https://docs.cognee.ai/setup-configuration/llm-providers)
-- PowerShell (Windows) or a Unix-like shell (macOS/Linux)
+- Python 3.10 through 3.14
+- Docker, for local Redis
+- An LLM API key, provided at the hackathon kickoff or from any Cognee-supported provider
+- PowerShell on Windows, or a Unix-like shell on macOS/Linux
+
+## macOS Prerequisites
+
+If you are on macOS, install the basics with Homebrew:
+
+```bash
+brew install python
+brew install redis
+```
+
+Use either Docker Desktop or the local Redis service. Docker matches the hackathon setup most closely, while Homebrew Redis is convenient for local development.
 
 ## Install
 
-The fast path uses [`uv`](https://docs.astral.sh/uv/):
+Create and activate a virtual environment.
+
+PowerShell:
 
 ```powershell
-# from llm-wiki/
-uv venv --python 3.12
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-uv pip install -r requirements.txt
 ```
 
 macOS/Linux:
 
 ```bash
-uv venv --python 3.12
+python -m venv .venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
+```
+
+Install dependencies.
+
+```bash
+pip install -r requirements.txt
 ```
 
 The important packages are:
 
-- `cognee` — long-term memory and semantic recall
-- `redis` — session memory client
-- `fastapi` + `uvicorn` — backend API
-- `python-multipart` — file upload support
-- `pypdf` — PDF text extraction
-- `rank-bm25` — local keyword search over markdown
-- `networkx` — concept graph and lint support
-
-## Start Redis
-
-Redis is the session-memory layer. Cognee picks it up automatically when `REDIS_URL` is set and a call includes a `session_id`.
-
-```bash
-docker run -d --name cognee-redis -p 6379:6379 redis:latest
-docker exec cognee-redis redis-cli PING   # -> PONG
-```
-
-macOS with Homebrew Redis (alternative):
-
-```bash
-brew services start redis    # stop with: brew services stop redis
-```
+- `cognee`: long-term memory and semantic recall
+- `redis`: session memory client
+- `fastapi` and `uvicorn`: backend API
+- `python-multipart`: file upload support
+- `pypdf`: PDF text extraction
+- `rank-bm25`: simple local keyword search
+- `networkx`: concept graph and lint support
 
 ## Configure Environment
 
-Create a local `.env` (already in `.gitignore`):
+Create a local `.env` file. This file is ignored by git.
 
 ```env
 LLM_API_KEY=your-api-key
 REDIS_URL=redis://localhost:6379
 ```
 
-For a non-default provider, also set:
+For macOS/Linux shell sessions, you can also export the values directly:
+
+```bash
+export LLM_API_KEY="your-api-key"
+export REDIS_URL="redis://localhost:6379"
+```
+
+If you use a non-default LLM provider, also set the Cognee provider variables supported by your provider, for example:
 
 ```env
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-4o-mini
 ```
 
-Provider reference: <https://docs.cognee.ai/setup-configuration/llm-providers>
+Cognee provider configuration is documented here:
+
+```text
+https://docs.cognee.ai/setup-configuration/llm-providers
+```
+
+## Start Redis
+
+Redis is the fast session-memory layer. Cognee uses it when `REDIS_URL` is set and calls include a `session_id`.
+
+Docker, all platforms:
+
+```bash
+docker run -p 6379:6379 redis:latest
+```
+
+macOS with Homebrew Redis:
+
+```bash
+brew services start redis
+```
+
+To stop the Homebrew Redis service:
+
+```bash
+brew services stop redis
+```
+
+Keep this container running while using the app.
 
 ## Smoke Test Cognee
+
+Run the existing test script:
 
 ```bash
 python test.py
 ```
 
-The script stores a short memory in cognee and recalls it — confirms LLM, Redis, and the graph are wired up.
+The script stores a short memory with Cognee and recalls it:
 
-## Run the Backend
+```python
+await cognee.remember("MC50 focuses on communication and evidence.")
+await cognee.recall("What does MC50 focus on?")
+```
+
+## Memory Model
+
+StudyAtlas uses two tiers of memory:
+
+```text
+User/session
+    |
+    v
+Redis session memory
+Fast scratchpad for recent uploads, current questions, draft answers, and session state.
+    |
+    v
+Cognee long-term memory
+Durable knowledge graph for course materials, student profile, concepts, bridges, and saved study guides.
+```
+
+Example Cognee usage:
+
+```python
+import cognee
+
+# Session memory through Redis.
+await cognee.remember(
+    "Student struggles with claims versus evidence.",
+    session_id="student_session_1",
+)
+
+# Long-term memory through Cognee.
+await cognee.remember(
+    "Evidence in statistics usually means data patterns, uncertainty, and inference."
+)
+
+# Recall checks the current session and long-term memory.
+results = await cognee.recall(
+    "What does this student struggle with?",
+    session_id="student_session_1",
+)
+```
+
+## Backend
+
+Once the FastAPI backend is added, run it with:
 
 ```bash
 uvicorn backend.main:app --reload
 ```
 
-Then open <http://localhost:8000/docs> for the OpenAPI UI.
+The backend listens at `http://localhost:8000` and exposes:
 
-### Cognee wrapper
+```text
+POST /ingest               Upload a course file and extract content into the wiki
+POST /student-context      Save a student profile note (goals, weak topics)
+GET  /wiki/pages           List all generated wiki pages
+GET  /wiki/page/{path}     Read the markdown content of a single page
+POST /query                Answer a question from the wiki with personalization
+POST /save-answer          Save a useful answer as a study guide or bridge page
+GET  /lint                 Run the lint check and return a structured report
+GET  /graph                Return the concept graph as JSON (nodes + edges)
+```
 
-The backend talks to cognee through `backend/memory.py`. If cognee is unavailable it falls back to a tiny in-process store so the dev loop still works without an API key.
+## Frontend
 
-## Run the Frontend
+The frontend is a React + Tailwind CSS app in `frontend/`.
 
-```powershell
+### Requirements
+
+- Node.js 18 or later
+- npm 9 or later
+
+### Install and run
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-The dev server proxies `/api/*` to `http://localhost:8000`.
+The dev server starts at `http://localhost:5174`.
 
-## API
+### Build for production
 
-| Method | Path                | Purpose                            |
-|--------|---------------------|------------------------------------|
-| POST   | `/ingest`           | Upload a document                  |
-| GET    | `/wiki/pages`       | List wiki pages                    |
-| GET    | `/wiki/page/{path}` | Read a wiki page                   |
-| POST   | `/query`            | Ask a question                     |
-| POST   | `/save-answer`      | Save an answer as a bridge page    |
-| GET    | `/lint`             | Run lint checks                    |
-| GET    | `/graph`            | Concept graph as JSON              |
+```bash
+cd frontend
+npm run build
+```
+
+Output goes to `frontend/dist/`.
+
+### Tabs
+
+| Tab | What it does |
+|-----|-------------|
+| Ingest | Drag-and-drop course files (PDF, TXT, MD, DOCX) and add a student context note, then click Build Wiki |
+| Wiki | Browse generated wiki pages by folder (courses, concepts, bridges, student, study\_guides) and read them rendered as markdown |
+| Query | Ask personalized cross-course questions, see which pages were used as sources, and save useful answers as study guides |
+| Graph | Interactive force-directed visualization of the concept graph, color-coded by node type |
+| Lint | Filterable lint report showing missing pages, orphan pages, weak bridges, and personalization gaps |
+
+### Component structure
+
+```text
+frontend/src/
+  App.jsx                       Tab shell and navigation header
+  components/
+    UploadPanel.jsx             File upload and student context input
+    WikiViewer.jsx              Sidebar page list and markdown viewer
+    QueryBox.jsx                Query input, example questions, save-as-study-guide
+    GraphView.jsx               Force-directed concept graph
+    LintReport.jsx              Filterable lint issues with severity badges
+```
+
+## Project Files
+
+```text
+courseatlas_project_plan.md   Project plan and hackathon scope
+docs/setup_guideline.md       Hackathon setup and Cognee/Redis reference
+requirements.txt              Python dependencies
+test.py                       Minimal Cognee smoke test
+frontend/                     React + Tailwind CSS frontend
+```
 
 ## Useful Cognee CLI Commands
 
@@ -184,16 +255,16 @@ The dev server proxies `/api/*` to `http://localhost:8000`.
 cognee-cli remember "Cognee turns documents into AI memory."
 cognee-cli recall "What does Cognee do?"
 cognee-cli forget --all
-cognee-cli -ui     # local graph viewer at http://localhost:3000
 ```
 
-## Docker (full app)
+Launch the local Cognee UI:
 
-```powershell
-docker build -t courseatlas .
-docker run -p 8000:8000 courseatlas
+```bash
+cognee-cli -ui
 ```
 
-## Status
+The UI runs at:
 
-MVP scaffold. The ingest pipeline is rule-based; the query path combines BM25 over markdown with cognee semantic recall. Next steps: wire `backend/memory.py` to the two-tier `session_id` pattern, add the skill self-improvement loop, polish the graph view, and harden the linter.
+```text
+http://localhost:3000
+```

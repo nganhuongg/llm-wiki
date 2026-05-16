@@ -1,7 +1,8 @@
 .venv/
 .env
-__pycache__/
-*.pyc
+
+# Node / npm
 node_modules/
-frontend/dist/
-.cognee/
+dist/
+.npm
+*.local

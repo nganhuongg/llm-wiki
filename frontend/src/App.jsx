@@ -1,86 +1,63 @@
-import { useEffect, useState } from "react";
-import UploadPanel from "./components/UploadPanel.jsx";
-import WikiViewer from "./components/WikiViewer.jsx";
-import QueryBox from "./components/QueryBox.jsx";
-import LintReport from "./components/LintReport.jsx";
-import GraphView from "./components/GraphView.jsx";
-import { api } from "./api.js";
+import { useState } from 'react'
+import './App.css'
+import UploadPanel from './components/UploadPanel'
+import WikiViewer from './components/WikiViewer'
+import QueryBox from './components/QueryBox'
+import GraphView from './components/GraphView'
+import LintReport from './components/LintReport'
+
+const TABS = [
+  { id: 'ingest',  label: 'Ingest',     icon: '⬆' },
+  { id: 'wiki',    label: 'Wiki',        icon: '📄' },
+  { id: 'query',   label: 'Query',       icon: '💬' },
+  { id: 'graph',   label: 'Graph',       icon: '🕸' },
+  { id: 'lint',    label: 'Lint',        icon: '🔍' },
+]
 
 export default function App() {
-  const [pages, setPages] = useState({ courses: [], concepts: [], sources: [], bridges: [] });
-  const [activePath, setActivePath] = useState(null);
-  const [tab, setTab] = useState("wiki");
-
-  const refresh = () => api.listPages().then(setPages).catch(console.error);
-  useEffect(() => { refresh(); }, []);
+  const [activeTab, setActiveTab] = useState('ingest')
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b border-slate-200 px-6 py-3 flex items-center justify-between bg-white">
-        <div>
-          <h1 className="text-2xl font-serif font-bold">CourseAtlas</h1>
-          <p className="text-xs text-slate-500">A self-improving wiki for your courses</p>
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🎓</span>
+            <span className="text-xl font-bold text-sky-700">StudyAtlas</span>
+            <span className="text-xs text-gray-400 ml-1 hidden sm:block">Personalized LLM Wiki for Students</span>
+          </div>
+          <nav className="flex gap-1">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-sky-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <span className="mr-1">{tab.icon}</span>
+                <span className="hidden sm:inline">{tab.label}</span>
+              </button>
+            ))}
+          </nav>
         </div>
-        <nav className="flex gap-1 text-sm">
-          {["wiki", "query", "lint", "graph"].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded ${tab === t ? "bg-ink text-cream" : "hover:bg-slate-100"}`}
-            >
-              {t}
-            </button>
-          ))}
-        </nav>
       </header>
 
-      <main className="flex flex-1 overflow-hidden">
-        <aside className="w-72 border-r border-slate-200 bg-white overflow-y-auto p-4 space-y-4">
-          <UploadPanel onUploaded={refresh} />
-          <Sidebar pages={pages} onSelect={(p) => { setActivePath(p); setTab("wiki"); }} active={activePath} />
-        </aside>
-
-        <section className="flex-1 overflow-y-auto p-6">
-          {tab === "wiki" && <WikiViewer path={activePath} />}
-          {tab === "query" && <QueryBox onSaved={refresh} />}
-          {tab === "lint" && <LintReport />}
-          {tab === "graph" && <GraphView />}
-        </section>
+      {/* Main content */}
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+        {activeTab === 'ingest' && <UploadPanel onWikiBuilt={() => setActiveTab('wiki')} />}
+        {activeTab === 'wiki'   && <WikiViewer />}
+        {activeTab === 'query'  && <QueryBox />}
+        {activeTab === 'graph'  && <GraphView />}
+        {activeTab === 'lint'   && <LintReport />}
       </main>
-    </div>
-  );
-}
 
-function Sidebar({ pages, onSelect, active }) {
-  const groups = [
-    ["Courses", pages.courses],
-    ["Concepts", pages.concepts],
-    ["Sources", pages.sources],
-    ["Bridges", pages.bridges],
-  ];
-  return (
-    <div className="space-y-3 text-sm">
-      {groups.map(([label, items]) => (
-        <div key={label}>
-          <h3 className="font-semibold text-slate-700 uppercase text-[10px] tracking-wider mb-1">{label}</h3>
-          {items.length === 0 ? (
-            <p className="text-slate-400 text-xs italic">empty</p>
-          ) : (
-            <ul className="space-y-0.5">
-              {items.map((p) => (
-                <li key={p}>
-                  <button
-                    onClick={() => onSelect(p)}
-                    className={`text-left w-full px-2 py-1 rounded hover:bg-slate-100 ${active === p ? "bg-slate-200" : ""}`}
-                  >
-                    {p.split("/").pop().replace(/\.md$/, "")}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
+      <footer className="text-center text-xs text-gray-400 py-3 border-t border-gray-100">
+        StudyAtlas — knowledge that compounds
+      </footer>
     </div>
-  );
+  )
 }
