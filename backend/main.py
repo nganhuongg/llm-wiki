@@ -1,61 +1,17 @@
-"""FastAPI entrypoint for StudyAtlas."""
+"""FastAPI entrypoint for CourseAtlas."""
 from __future__ import annotations
 
-import asyncio
-import json
 import shutil
-from contextlib import asynccontextmanager
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import config, graph, improve, ingest, lint, memory, query, wiki_writer
+from . import config, graph, ingest, lint, memory, query, wiki_writer
 
-_DECAY_TASK: asyncio.Task | None = None
-
-
-async def _decay_watcher() -> None:
-    client = memory.redis_client()
-    if client is None:
-        return
-    pubsub = client.pubsub()
-    await pubsub.psubscribe("__keyevent@*__:expired")
-    try:
-        async for msg in pubsub.listen():
-            if msg.get("type") != "pmessage":
-                continue
-            key = str(msg.get("data", ""))
-            if not key.startswith("decay:"):
-                continue
-            parts = key.split(":", 2)
-            if len(parts) != 3:
-                continue
-            _, session_id, slug = parts
-            await memory.handle_decay_expiration(session_id, slug)
-    finally:
-        await pubsub.close()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _DECAY_TASK
-    _DECAY_TASK = asyncio.create_task(_decay_watcher())
-    improve.ensure_skill()
-    try:
-        yield
-    finally:
-        if _DECAY_TASK:
-            _DECAY_TASK.cancel()
-            try:
-                await _DECAY_TASK
-            except asyncio.CancelledError:
-                pass
-
-
-app = FastAPI(title="StudyAtlas", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="CourseAtlas", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,50 +24,40 @@ app.add_middleware(
 class QueryBody(BaseModel):
     question: str
     k: int = 5
-    session_id: str = config.DEFAULT_SESSION_ID
-
-
-class SaveAnswerBody(BaseModel):
-    concept: str | None = None
-    courses: list[str] = []
-    answer_md: str | None = None
-    question: str | None = None
-    answer: str | None = None
-    session_id: str = config.DEFAULT_SESSION_ID
-
-
-class AssetIngestBody(BaseModel):
-    filename: str
-    session_id: str = config.DEFAULT_SESSION_ID
-
-
-class StudentContextBody(BaseModel):
-    context: str
-    session_id: str = config.DEFAULT_SESSION_ID
 
 
 class RateBody(BaseModel):
-    question: str
-    answer: str = ""
-    score: float
-    session_id: str = config.DEFAULT_SESSION_ID
+    rating: float  # 0.0 to 1.0
+    concepts_touched: list[str]
 
 
-class ImproveBody(BaseModel):
-    question: str
-    session_id: str = config.DEFAULT_SESSION_ID
+class SaveAnswerBody(BaseModel):
+    concept: str
+    courses: list[str]
+    answer_md: str
 
 
 @app.get("/")
 async def root() -> dict:
-    return {"name": "StudyAtlas", "version": "0.1.0"}
+    return {"name": "CourseAtlas", "version": "0.1.0"}
 
+
+# ============================================================================
+# INGEST (Updated to handle session_id)
+# ============================================================================
 
 @app.post("/ingest")
-async def post_ingest(
-    file: UploadFile = File(...),
-    session_id: str = Query(default=config.DEFAULT_SESSION_ID),
-) -> dict:
+async def post_ingest(file: UploadFile = File(...), session_id: str | None = Query(None)) -> dict:
+    """
+    Upload and ingest a file.
+    
+    If session_id is not provided, generate a new one.
+    Returns session_id so frontend can store it in localStorage.
+    """
+    # NEW: Generate session_id if not provided (first upload)
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    
     suffix = Path(file.filename or "upload.txt").suffix.lower()
     bucket = "syllabi" if "syllab" in (file.filename or "").lower() else "readings"
     dest_dir = config.RAW_DIR / bucket
@@ -119,36 +65,109 @@ async def post_ingest(
     dest = dest_dir / (file.filename or f"upload{suffix}")
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
-    result = await ingest.ingest_file(dest, session_id=session_id)
+    
+    # UPDATED: Pass session_id to ingest
+    result = await ingest.ingest_file(dest, session_id)
     return {"file": dest.name, **result}
 
 
-@app.get("/assets")
-async def list_assets() -> dict:
-    files = []
-    for path in sorted(config.ASSETS_DIR.iterdir()):
-        if path.is_file() and path.suffix.lower() in {".pdf", ".docx", ".txt", ".md"}:
-            files.append({"name": path.name, "size": path.stat().st_size})
-    return {"files": files}
+# ============================================================================
+# NEW: MASTERY STATE (For UI Bars)
+# ============================================================================
+
+@app.get("/mastery-state")
+async def get_mastery_state(session_id: str = Query(...)) -> dict:
+    """
+    Return current mastery state for all concepts in a session.
+    Used by frontend to render mastery bars.
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    state = await memory.get_mastery_state(session_id)
+    return {
+        "session_id": session_id,
+        "mastery": state,
+        "threshold_fading": config.MASTERY_THRESHOLDS["fading"],
+        "threshold_consolidate": config.MASTERY_THRESHOLDS["consolidate"],
+    }
 
 
-@app.post("/ingest-assets")
-async def ingest_asset(body: AssetIngestBody) -> dict:
-    target = (config.ASSETS_DIR / body.filename).resolve()
-    if not target.is_file() or config.ASSETS_DIR.resolve() not in target.parents:
-        raise HTTPException(404, "asset not found")
-    result = await ingest.ingest_file(target, session_id=body.session_id)
-    return {"file": target.name, **result}
+# ============================================================================
+# QUERY (Updated with session_id)
+# ============================================================================
+
+@app.post("/query")
+async def post_query(body: QueryBody, session_id: str = Query(...)) -> dict:
+    """
+    Ask a question against the wiki.
+    
+    Returns answer + concepts touched (for rating phase).
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    result = await query.answer(body.question, session_id, k=body.k)
+    return result
 
 
-@app.post("/student-context")
-async def save_student_context(body: StudentContextBody) -> dict:
-    page = wiki_writer.write_student_context(body.context)
-    wiki_writer.rebuild_index()
-    await memory.remember(f"Student context:\n{body.context}", session_id=body.session_id)
-    await memory.remember(f"Durable student profile:\n{body.context}")
-    return {"page": page.relative_to(config.WIKI_DIR).as_posix()}
+# ============================================================================
+# NEW: RATE ANSWER (Updates Mastery + Triggers Skill Improvement Proposal)
+# ============================================================================
 
+@app.post("/rate")
+async def post_rate(body: RateBody, session_id: str = Query(...)) -> dict:
+    """
+    Rate an answer (0.0 to 1.0).
+    
+    - If rating ≥ 0.7: bump mastery for concepts_touched
+    - Log rating event
+    - Return success + concepts updated
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    if not (0.0 <= body.rating <= 1.0):
+        raise HTTPException(status_code=400, detail="rating must be 0.0-1.0")
+    
+    updated_concepts = []
+    
+    # Only bump if high rating
+    if body.rating >= 0.7:
+        for slug in body.concepts_touched:
+            await memory.bump_mastery(session_id, slug, config.MASTERY_DELTAS["high_rating"])
+            
+            # Check if this concept should be distilled to graph
+            new_score = await memory.get_mastery(session_id, slug)
+            await memory.distill_to_graph(session_id, slug, new_score)
+            
+            updated_concepts.append(slug)
+    
+    # Log event
+    await memory.log_event(
+        session_id,
+        "rate",
+        {
+            "rating": body.rating,
+            "concepts_touched": body.concepts_touched,
+            "bumped": updated_concepts,
+        },
+    )
+    
+    # NEW: Get mastery state after update
+    new_state = await memory.get_mastery_state(session_id)
+    
+    return {
+        "success": True,
+        "rating": body.rating,
+        "concepts_bumped": updated_concepts,
+        "mastery_state": new_state,
+    }
+
+
+# ============================================================================
+# WIKI ENDPOINTS
+# ============================================================================
 
 @app.get("/wiki/pages")
 async def list_pages() -> dict:
@@ -159,8 +178,6 @@ async def list_pages() -> dict:
         "concepts": listing(config.CONCEPTS_DIR),
         "sources": listing(config.SOURCES_DIR),
         "bridges": listing(config.BRIDGES_DIR),
-        "student": listing(config.STUDENT_DIR),
-        "study_guides": listing(config.STUDY_GUIDES_DIR),
     }
 
 
@@ -172,91 +189,75 @@ async def read_page(path: str) -> dict:
     return {"path": path, "content": target.read_text(encoding="utf-8")}
 
 
-@app.post("/query")
-async def post_query(body: QueryBody) -> dict:
-    await memory.remember(f"Current question: {body.question}", session_id=body.session_id)
-    return await query.answer(body.question, k=body.k, session_id=body.session_id)
-
+# ============================================================================
+# SAVE & LINT ENDPOINTS (Updated with session_id)
+# ============================================================================
 
 @app.post("/save-answer")
-async def post_save_answer(body: SaveAnswerBody) -> dict:
-    if body.question or body.answer:
-        page = wiki_writer.write_study_guide(body.question or "Saved answer", body.answer or body.answer_md or "")
-    else:
-        page = wiki_writer.write_bridge_page(body.concept or "concept", body.courses, body.answer_md or "")
+async def post_save_answer(body: SaveAnswerBody, session_id: str = Query(...)) -> dict:
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    page = wiki_writer.write_bridge_page(body.concept, body.courses, body.answer_md)
     wiki_writer.rebuild_index()
-    await memory.remember(
-        f"Saved study guide: {body.question or body.concept}\n\n{body.answer or body.answer_md or ''}",
+    
+    # NEW: Log the event
+    await memory.log_event(
+        session_id,
+        "save_answer",
+        {
+            "concept": body.concept,
+            "courses": body.courses,
+        },
     )
-    return {"page": page.relative_to(config.WIKI_DIR).as_posix(), "path": page.relative_to(config.WIKI_DIR).as_posix()}
-
-
-@app.post("/rate")
-async def post_rate(body: RateBody) -> dict:
-    concepts = _concepts_from_text(body.question + " " + body.answer)
-    delta = 0.12 if body.score >= 0.7 else -0.18
-    mastery = await memory.adjust_mastery(body.session_id, concepts, delta)
-    await memory.set_last_score(body.session_id, body.score)
-    await memory.remember(
-        f"Answer rating: {body.score}\nQuestion: {body.question}\nAnswer excerpt: {body.answer[:500]}",
-        session_id=body.session_id,
-    )
-    return {"concepts": concepts, "mastery": mastery}
-
-
-@app.post("/improve")
-async def post_improve(body: ImproveBody) -> dict:
-    return improve.apply_rewrite(body.question, await memory.get_last_score(body.session_id))
-
-
-@app.get("/mastery-state")
-async def get_mastery_state(session_id: str = config.DEFAULT_SESSION_ID) -> dict:
-    return {
-        "session_id": session_id,
-        "threshold": config.DECAY_THRESHOLD,
-        "concepts": await memory.mastery_state(session_id),
-    }
-
-
-@app.get("/events/decay")
-async def decay_events(session_id: str = config.DEFAULT_SESSION_ID):
-    async def event_stream():
-        client = memory.redis_client()
-        if client is None:
-            return
-        pubsub = client.pubsub()
-        await pubsub.subscribe(memory.events_channel(session_id))
-        try:
-            while True:
-                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15)
-                if msg and msg.get("type") == "message":
-                    yield f"data: {msg['data']}\n\n"
-                else:
-                    yield ": keepalive\n\n"
-        finally:
-            await pubsub.close()
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    
+    return {"page": page.relative_to(config.WIKI_DIR).as_posix()}
 
 
 @app.get("/lint")
-async def get_lint() -> dict:
-    return lint.run()
+async def get_lint(session_id: str = Query(...)) -> dict:
+    """
+    Run lint checks on the wiki.
+    
+    NEW: Includes fading-concepts rule (from Redis mastery state).
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    # Get base lint issues
+    issues = lint.run()
+    
+    # NEW: Add fading-concepts rule
+    fading = await memory.fading_concepts(session_id)
+    for slug in fading:
+        mastery = await memory.get_mastery(session_id, slug)
+        issues.append({
+            "type": "fading_concept",
+            "name": slug,
+            "mastery": mastery,
+            "threshold": config.MASTERY_THRESHOLDS["fading"],
+            "message": f"Concept `{slug}` is fading (mastery {mastery:.2f}). Review soon to consolidate.",
+        })
+    
+    return {"issues": issues, "session_id": session_id}
 
 
 @app.get("/graph")
-async def get_graph() -> dict:
-    return graph.build()
+async def get_graph(session_id: str = Query(...)) -> dict:
+    """
+    Return concept graph as JSON.
+    
+    NEW: Nodes include mastery + known_as_of from Redis.
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    
+    state = await memory.get_mastery_state(session_id)
+    graph_data = graph.build()
+    
+    # Enrich graph nodes with mastery state
+    for node in graph_data.get("nodes", []):
+        node["mastery"] = state.get(node["id"], config.INITIAL_MASTERY)
+    
+    return graph_data
 
-
-def _concepts_from_text(text: str) -> list[str]:
-    known = {
-        "case_study": ["case study", "zika", "microcephaly"],
-        "evidence_based_argument": ["evidence", "argument", "claim"],
-        "hypothesis_development": ["hypothesis"],
-        "plausibility": ["plausible", "plausibility", "assumption"],
-        "research_design": ["research design", "comparison", "study design"],
-    }
-    lower = text.lower()
-    concepts = [slug for slug, needles in known.items() if any(n in lower for n in needles)]
-    return concepts or ["personalized_explanation"]

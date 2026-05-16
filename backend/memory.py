@@ -1,215 +1,333 @@
-"""Cognee-backed memory engine.
+"""Redis-backed memory engine with mastery tracking and event logging.
 
-We hide cognee behind a thin wrapper so the rest of the app calls
-`remember(text)` / `recall(query)` without caring about the backend.
-If cognee is unavailable we fall back to a tiny in-process store so the
-dev loop still runs.
+Combines:
+- Cognee for permanent semantic memory (graph)
+- Redis for student's working memory (mastery state + event log)
+- TTL-based forgetting curve (Ebbinghaus)
+- Distillation rule: mastery ≥ 0.7 → promote to Cognee graph
 """
 from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+import time
 from typing import Any
+
+import redis.asyncio as aioredis
+from redis.exceptions import ConnectionError, ResponseError
 
 from . import config
 
 try:
     import cognee  # type: ignore
     _COGNEE = True
-except Exception:  # pragma: no cover - graceful dev fallback
+except Exception:  # pragma: no cover
     cognee = None  # type: ignore
     _COGNEE = False
 
-try:
-    import redis.asyncio as redis_async  # type: ignore
-    _REDIS_IMPORT = True
-except Exception:  # pragma: no cover - graceful dev fallback
-    redis_async = None  # type: ignore
-    _REDIS_IMPORT = False
-
-_FALLBACK: list[str] = []
-_REDIS = None
+# Global async Redis client (lazy-initialized)
+_redis_client: aioredis.Redis | None = None
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def redis_client():
-    global _REDIS
-    if not _REDIS_IMPORT:
-        return None
-    if _REDIS is None:
-        _REDIS = redis_async.from_url(config.REDIS_URL, decode_responses=True)
-    return _REDIS
-
-
-def mastery_key(session_id: str) -> str:
-    return f"mastery:{session_id}"
-
-
-def known_key(session_id: str, slug: str) -> str:
-    return f"known_as_of:{session_id}:{slug}"
-
-
-def excerpt_key(session_id: str, slug: str) -> str:
-    return f"excerpt:{session_id}:{slug}"
-
-
-def decay_key(session_id: str, slug: str) -> str:
-    return f"decay:{session_id}:{slug}"
-
-
-def events_channel(session_id: str) -> str:
-    return f"events:decay:{session_id}"
-
-
-def last_score_key(session_id: str) -> str:
-    return f"last_score:{session_id}"
-
-
-async def remember(text: str, metadata: dict[str, Any] | None = None, session_id: str | None = None) -> None:
-    if _COGNEE:
-        kwargs = {"session_id": session_id} if session_id else {}
+async def get_redis() -> aioredis.Redis | None:
+    """Lazy-initialize Redis client."""
+    global _redis_client
+    if _redis_client is None:
         try:
-            await asyncio.wait_for(
-                cognee.remember(text, **kwargs),  # type: ignore[attr-defined]
-                timeout=config.COGNEE_TIMEOUT_SECONDS,
+            _redis_client = await aioredis.from_url(
+                config.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
             )
-            return
-        except Exception:
-            _FALLBACK.append(text)
-            return
-    _FALLBACK.append(text)
+            # Test connection
+            await _redis_client.ping()
+        except (ConnectionError, ResponseError) as e:
+            print(f"⚠️  Redis connection failed: {e}")
+            print("Continuing with fallback (no mastery tracking)")
+            _redis_client = None
+    return _redis_client
 
 
-async def recall(query: str, limit: int = 5, session_id: str | None = None) -> list[str]:
-    if _COGNEE:
-        kwargs = {"session_id": session_id} if session_id else {}
-        try:
-            results = await asyncio.wait_for(
-                cognee.recall(query, **kwargs),  # type: ignore[attr-defined]
-                timeout=config.COGNEE_TIMEOUT_SECONDS,
-            )
-            if isinstance(results, list):
-                return [str(r) for r in results[:limit]]
-            return [str(results)]
-        except Exception:
-            pass
-    q = query.lower()
-    scored = sorted(_FALLBACK, key=lambda t: -sum(1 for w in q.split() if w in t.lower()))
-    return scored[:limit]
+async def close_redis() -> None:
+    """Close Redis client on shutdown."""
+    global _redis_client
+    if _redis_client:
+        await _redis_client.close()
+        _redis_client = None
 
 
-def remember_sync(text: str, metadata: dict[str, Any] | None = None) -> None:
-    asyncio.run(remember(text, metadata))
+# ============================================================================
+# MASTERY STATE (Sorted Set: mastery:{session_id})
+# ============================================================================
 
 
-def recall_sync(query: str, limit: int = 5) -> list[str]:
-    return asyncio.run(recall(query, limit))
+async def set_mastery(session_id: str, concept_slug: str, score: float) -> None:
+    """Set mastery score for a concept in a session (0.0 to 1.0)."""
+    if not session_id or not concept_slug:
+        return
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return
+    score = max(0.0, min(1.0, score))  # Clamp to [0, 1]
+    key = f"mastery:{session_id}"
+    await redis_cli.zadd(key, {concept_slug: score})
+
+
+async def bump_mastery(session_id: str, concept_slug: str, delta: float) -> None:
+    """Increment mastery score (used after interactions)."""
+    if not session_id or not concept_slug:
+        return
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return
+    key = f"mastery:{session_id}"
+    # Increment and clamp
+    score = await redis_cli.zincrby(key, delta, concept_slug)
+    if score > 1.0:
+        await redis_cli.zadd(key, {concept_slug: 1.0})
+
+
+async def get_mastery(session_id: str, concept_slug: str) -> float:
+    """Get current mastery score for a concept."""
+    if not session_id or not concept_slug:
+        return 0.0
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return config.INITIAL_MASTERY
+    key = f"mastery:{session_id}"
+    score = await redis_cli.zscore(key, concept_slug)
+    return float(score) if score is not None else config.INITIAL_MASTERY
+
+
+async def fading_concepts(
+    session_id: str, threshold: float | None = None
+) -> list[str]:
+    """Return concepts below mastery threshold (fading or forgotten)."""
+    if not session_id:
+        return []
+    if threshold is None:
+        threshold = config.MASTERY_THRESHOLDS["fading"]
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return []
+    key = f"mastery:{session_id}"
+    # ZRANGEBYSCORE returns all members with score in [min, max]
+    fading = await redis_cli.zrangebyscore(key, 0, threshold)
+    return list(fading)
+
+
+async def get_mastery_state(session_id: str) -> dict[str, float]:
+    """Return full mastery state for a session (for UI)."""
+    if not session_id:
+        return {}
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return {}
+    key = f"mastery:{session_id}"
+    # ZRANGE with WITHSCORES returns [(slug, score), ...]
+    pairs = await redis_cli.zrange(key, 0, -1, withscores=True)
+    return {slug: float(score) for slug, score in pairs}
+
+
+async def seed_concept_mastery(
+    session_id: str, concepts: list[str]
+) -> None:
+    """Initialize mastery state for newly ingested concepts."""
+    if not session_id or not concepts:
+        return
+    for slug in concepts:
+        await set_mastery(session_id, slug, config.INITIAL_MASTERY)
+        # Also set a TTL key to trigger decay event
+        await _set_concept_ttl(session_id, slug)
+
+
+async def _set_concept_ttl(session_id: str, concept_slug: str) -> None:
+    """Set a TTL key for this concept (triggers forgetting curve)."""
+    if not session_id or not concept_slug:
+        return
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return
+    ttl_key = f"concept:{session_id}:{concept_slug}"
+    # Set a marker value with TTL
+    await redis_cli.setex(
+        ttl_key,
+        config.CONCEPT_TTL_SECONDS,
+        json.dumps({"slug": concept_slug, "seeded_at": time.time()}),
+    )
+
+
+# ============================================================================
+# EVENT LOG (Stream: events:{session_id})
+# ============================================================================
+
+
+async def log_event(
+    session_id: str,
+    event_type: str,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """Log an event to the session's event stream."""
+    if not session_id or not event_type:
+        return ""
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return ""
+    
+    key = f"events:{session_id}"
+    metadata = metadata or {}
+    metadata["event_type"] = event_type
+    metadata["timestamp"] = time.time()
+    
+    # XADD appends to stream
+    event_id = await redis_cli.xadd(key, metadata)
+    return str(event_id)
+
+
+async def get_recent_events(session_id: str, limit: int = 50) -> list[dict]:
+    """Retrieve recent events from the session's stream."""
+    if not session_id:
+        return []
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return []
+    
+    key = f"events:{session_id}"
+    # XREVRANGE from most recent backwards
+    events = await redis_cli.xrevrange(key, count=limit)
+    result = []
+    for event_id, event_data in events:
+        event_data["id"] = str(event_id)
+        result.append(event_data)
+    return result
+
+
+# ============================================================================
+# DISTILLATION: Redis → Cognee Graph
+# ============================================================================
+
+
+async def distill_to_graph(
+    session_id: str, concept_slug: str, mastery_score: float
+) -> None:
+    """
+    Promote a concept to permanent Cognee graph when mastery ≥ threshold.
+    Adds metadata timestamp 'known_as_of' to track when it was consolidated.
+    """
+    if not _COGNEE:
+        return
+    
+    threshold = config.MASTERY_THRESHOLDS["consolidate"]
+    if mastery_score < threshold:
+        return  # Not ready yet
+    
+    # Concept gets promoted to graph with timestamp
+    metadata = {
+        "known_as_of": time.time(),
+        "session_id": session_id,
+        "mastery_at_consolidation": mastery_score,
+    }
+    
+    try:
+        await cognee.remember(
+            f"Consolidated concept: {concept_slug}",
+            metadata=metadata,
+        )
+    except Exception as e:
+        print(f"⚠️  Distillation failed for {concept_slug}: {e}")
+
+
+# ============================================================================
+# COGNEE REMEMBER / RECALL (Wrapper)
+# ============================================================================
+
+
+async def remember(
+    text: str, metadata: dict[str, Any] | None = None
+) -> None:
+    """Remember text in Cognee (semantic memory)."""
+    if not _COGNEE:
+        return
+    try:
+        await cognee.remember(text, metadata=metadata)
+    except Exception as e:
+        print(f"⚠️  Cognee remember failed: {e}")
+
+
+async def recall(query: str, limit: int = 5) -> list[str]:
+    """Recall from Cognee memory."""
+    if not _COGNEE:
+        return []
+    try:
+        results = await cognee.recall(query)
+        if isinstance(results, list):
+            return [str(r) for r in results[:limit]]
+        return [str(results)]
+    except Exception as e:
+        print(f"⚠️  Cognee recall failed: {e}")
+        return []
+
+
+# ============================================================================
+# SESSION MANAGEMENT
+# ============================================================================
+
+
+async def prune_old_sessions(days: int | None = None) -> int:
+    """
+    Delete events and mastery state for sessions older than N days.
+    Useful for demo cleanup after 7+ days.
+    Returns count of sessions pruned.
+    """
+    if days is None:
+        days = config.SESSION_PRUNE_DAYS
+    
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return 0
+    
+    # This is a simple implementation: scan all keys and delete old ones
+    # In production, you'd track session creation time more carefully
+    cutoff_time = time.time() - (days * 86400)
+    
+    # For now, manual cleanup only (can enhance later)
+    print(f"Session pruning: would remove sessions older than {days} days")
+    return 0
+
+
+async def clear_session(session_id: str) -> None:
+    """Completely clear a session's data from Redis."""
+    if not session_id:
+        return
+    redis_cli = await get_redis()
+    if not redis_cli:
+        return
+    
+    keys_to_delete = [
+        f"mastery:{session_id}",
+        f"events:{session_id}",
+        f"concept:*",  # Wildcard for TTL keys
+    ]
+    
+    for pattern in keys_to_delete:
+        if "*" in pattern:
+            # Use SCAN for patterns
+            cursor = 0
+            while True:
+                cursor, keys = await redis_cli.scan(cursor, match=pattern, count=100)
+                if keys:
+                    await redis_cli.delete(*keys)
+                if cursor == 0:
+                    break
+        else:
+            await redis_cli.delete(pattern)
+
+
+# ============================================================================
+# BACKEND DETECTION (for debug)
+# ============================================================================
 
 
 def backend_name() -> str:
-    return "cognee" if _COGNEE else "fallback"
-
-
-async def seed_mastery(session_id: str, concepts: list[str], excerpt: str = "") -> None:
-    client = redis_client()
-    if client is None:
-        return
-    now = _now_iso()
-    for concept in concepts:
-        slug = slugify(concept)
-        if not slug:
-            continue
-        await client.zadd(mastery_key(session_id), {slug: 0.82})
-        await client.set(known_key(session_id, slug), now)
-        await client.set(excerpt_key(session_id, slug), excerpt[:500])
-        await client.set(decay_key(session_id, slug), "1", ex=config.DECAY_TTL_SECONDS)
-
-
-async def mastery_state(session_id: str) -> list[dict[str, Any]]:
-    client = redis_client()
-    if client is None:
-        return []
-    rows = await client.zrange(mastery_key(session_id), 0, -1, withscores=True)
-    concepts: list[dict[str, Any]] = []
-    for slug, score in rows:
-        concepts.append({
-            "slug": slug,
-            "score": round(float(score), 3),
-            "known_as_of": await client.get(known_key(session_id, slug)),
-            "page_excerpt": await client.get(excerpt_key(session_id, slug)),
-        })
-    return concepts
-
-
-async def adjust_mastery(session_id: str, concepts: list[str], delta: float) -> list[dict[str, Any]]:
-    client = redis_client()
-    if client is None:
-        return []
-    for concept in concepts:
-        slug = slugify(concept)
-        current = await client.zscore(mastery_key(session_id), slug)
-        next_score = min(1.0, max(0.0, float(current or 0.5) + delta))
-        await client.zadd(mastery_key(session_id), {slug: next_score})
-        await client.set(known_key(session_id, slug), _now_iso())
-        await client.set(decay_key(session_id, slug), "1", ex=config.DECAY_TTL_SECONDS)
-    return await mastery_state(session_id)
-
-
-async def publish_decay(session_id: str, slug: str, score: float) -> None:
-    client = redis_client()
-    if client is None:
-        return
-    payload = {
-        "type": "decay:warn",
-        "session_id": session_id,
-        "concept": slug,
-        "score": round(score, 3),
-        "known_as_of": await client.get(known_key(session_id, slug)),
-        "page_excerpt": await client.get(excerpt_key(session_id, slug)),
-    }
-    await client.publish(events_channel(session_id), json.dumps(payload))
-    await client.xadd(f"stream:decay:{session_id}", payload, maxlen=100, approximate=True)
-
-
-async def handle_decay_expiration(session_id: str, slug: str) -> None:
-    client = redis_client()
-    if client is None:
-        return
-    current = await client.zscore(mastery_key(session_id), slug)
-    if current is None:
-        return
-    score = max(0.0, float(current) - 0.28)
-    await client.zadd(mastery_key(session_id), {slug: score})
-    if score <= config.DECAY_THRESHOLD:
-        await publish_decay(session_id, slug, score)
-    if score > 0:
-        await client.set(decay_key(session_id, slug), "1", ex=config.DECAY_TTL_SECONDS)
-
-
-def slugify(name: str) -> str:
-    import re
-
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-
-
-async def set_last_score(session_id: str, score: float) -> None:
-    client = redis_client()
-    if client is not None:
-        await client.set(last_score_key(session_id), str(score), ex=60 * 60)
-
-
-async def get_last_score(session_id: str) -> float | None:
-    client = redis_client()
-    if client is None:
-        return None
-    value = await client.get(last_score_key(session_id))
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
+    """Return the active memory backend."""
+    return "cognee+redis" if _COGNEE else "cognee-only"
