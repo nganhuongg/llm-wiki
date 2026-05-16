@@ -61,7 +61,7 @@ export default function GraphView() {
 
       const nodes = (graphJson.nodes ?? []).map(n => {
         const isConcept = (n.type ?? 'default') === 'concept'
-        const score = masteryMap[n.id] ?? masteryMap[n.label]
+        const score = masteryMap[n.slug] ?? masteryMap[n.id] ?? masteryMap[n.label]
         return {
           id:    n.id,
           label: n.label ?? n.id,

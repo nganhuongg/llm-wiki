@@ -1,8 +1,25 @@
 .venv/
 .env
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # Node / npm
 node_modules/
 dist/
 .npm
 *.local
+
+# Generated app state
+wiki/
+metadata/
+raw_materials/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

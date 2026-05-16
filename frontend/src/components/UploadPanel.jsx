@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
+import { SESSION_ID } from '../session'
 
 const API = 'http://localhost:8000'
 
@@ -13,19 +14,6 @@ const ACCEPT = {
 const FILE_ICONS = { pdf: '📄', docx: '📝', txt: '📃', md: '📋' }
 const fileIcon = name => FILE_ICONS[name.split('.').pop().toLowerCase()] ?? '📁'
 const fmtSize  = b => b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`
-
-// Fake build steps shown during the progress animation
-const BUILD_STEPS = [
-  { label: 'Reading files from assets/',      ms: 600  },
-  { label: 'Parsing PDF content',             ms: 1000 },
-  { label: 'Extracting key concepts',         ms: 1100 },
-  { label: 'Building course pages',           ms: 800  },
-  { label: 'Generating concept pages',        ms: 900  },
-  { label: 'Creating student profile',        ms: 600  },
-  { label: 'Linking concepts across courses', ms: 900  },
-  { label: 'Writing wiki to disk',            ms: 700  },
-  { label: 'Wiki ready!',                     ms: 400  },
-]
 
 export default function UploadPanel({ onWikiBuilt }) {
   const [assets, setAssets]               = useState([])
@@ -79,7 +67,7 @@ export default function UploadPanel({ onWikiBuilt }) {
     setSelected(next)
   }
 
-  // ── Build Wiki (always succeeds) ──────────────────────────────────────────
+  // ── Build Wiki ────────────────────────────────────────────────────────────
   const handleBuild = async () => {
     if (selected.size === 0 && newFiles.length === 0) return
 
@@ -87,23 +75,59 @@ export default function UploadPanel({ onWikiBuilt }) {
     setDone(false)
     setPct(0)
 
-    const totalMs = BUILD_STEPS.reduce((s, x) => s + x.ms, 0)
-    let elapsed = 0
-
-    for (const step of BUILD_STEPS) {
-      setStepLabel(step.label + '…')
-      await new Promise(r => setTimeout(r, step.ms))
-      elapsed += step.ms
-      setPct(Math.round((elapsed / totalMs) * 100))
+    const selectedAssets = Array.from(selected)
+    const total = newFiles.length + selectedAssets.length + (studentContext.trim() ? 1 : 0)
+    let step = 0
+    const tick = label => {
+      step += 1
+      setStepLabel(label)
+      setPct(Math.round((step / Math.max(total, 1)) * 100))
     }
 
-    setStepLabel('Wiki ready!')
-    setBuilding(false)
-    setDone(true)
+    try {
+      // 1. Upload any new dragged-in files (backend saves them to assets/)
+      for (let i = 0; i < newFiles.length; i++) {
+        const file = newFiles[i]
+        tick(`Uploading ${i + 1}/${newFiles.length}: ${file.name}…`)
+        const form = new FormData()
+        form.append('file', file)
+        const res = await fetch(`${API}/ingest?session_id=${encodeURIComponent(SESSION_ID)}`, { method: 'POST', body: form })
+        if (!res.ok) throw new Error(`Failed to upload ${file.name}`)
+      }
 
-    // Small pause so the user sees "Wiki ready!" before the tab switches
-    await new Promise(r => setTimeout(r, 600))
-    onWikiBuilt()
+      // 2. Ingest selected pre-existing assets
+      for (let i = 0; i < selectedAssets.length; i++) {
+        const name = selectedAssets[i]
+        tick(`Ingesting ${i + 1}/${selectedAssets.length}: ${name}…`)
+        const res = await fetch(`${API}/ingest-assets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: name, session_id: SESSION_ID }),
+        })
+        if (!res.ok) throw new Error(`Failed to ingest ${name}`)
+      }
+
+      // 3. Student context
+      if (studentContext.trim()) {
+        tick('Saving student context…')
+        await fetch(`${API}/student-context`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context: studentContext, session_id: SESSION_ID }),
+        })
+      }
+
+      setPct(100)
+      setStepLabel('Wiki ready!')
+      setBuilding(false)
+      setDone(true)
+      await loadAssets()
+      await new Promise(r => setTimeout(r, 600))
+      onWikiBuilt()
+    } catch (err) {
+      setStepLabel(`Error: ${err.message}`)
+      setBuilding(false)
+    }
   }
 
   const canBuild = (selected.size > 0 || newFiles.length > 0) && !building && !done
