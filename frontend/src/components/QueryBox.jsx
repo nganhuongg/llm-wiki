@@ -12,6 +12,27 @@ const EXAMPLE_QUERIES = [
   'Explain evidence-based argument using something I already understand.',
 ]
 
+// ── Concept detection ─────────────────────────────────────────────────────────
+const CONCEPT_KEYWORDS = [
+  { slug: 'case_study',              kw: ['case study', 'case-study', 'zika'] },
+  { slug: 'plausibility',            kw: ['plausibility', 'plausible'] },
+  { slug: 'hypothesis_development',  kw: ['hypothesis', 'hypothesis development'] },
+  { slug: 'evidence_based_argument', kw: ['evidence-based', 'evidence based', 'evidence'] },
+  { slug: 'research_design',         kw: ['research design', 'research'] },
+  { slug: 'confounders',             kw: ['confounder', 'confounding'] },
+]
+
+function detectConcepts(queryText, sources = []) {
+  const lower = queryText.toLowerCase()
+  const fromText = CONCEPT_KEYWORDS
+    .filter(({ kw }) => kw.some(k => lower.includes(k)))
+    .map(({ slug }) => slug)
+  const fromSources = sources
+    .filter(s => s.startsWith('concepts/'))
+    .map(s => s.replace('concepts/', '').replace('.md', ''))
+  return [...new Set([...fromText, ...fromSources])]
+}
+
 const RATING_OPTIONS = [
   { value: 0.1, label: '0.1', desc: 'Not helpful' },
   { value: 0.3, label: '0.3', desc: 'A bit off'   },
@@ -258,7 +279,7 @@ function RatingWidget({ onRate, disabled }) {
   )
 }
 
-export default function QueryBox({ masteryState = [] }) {
+export default function QueryBox({ masteryState = [], onConceptBoost }) {
   const [query, setQuery]           = useState('')
   const [answer, setAnswer]         = useState(null)
   const [loading, setLoading]       = useState(false)
@@ -311,6 +332,9 @@ export default function QueryBox({ masteryState = [] }) {
     setLoading(false)
     setAnswer(data)
     streamer.start(data.answer ?? '')
+    // Small boost for engaging with these concepts
+    const engaged = detectConcepts(text, data.sources ?? [])
+    onConceptBoost?.(engaged, 0.03)
   }
 
   const handleRate = async (score) => {
@@ -323,6 +347,9 @@ export default function QueryBox({ masteryState = [] }) {
         body: JSON.stringify({ question: query, answer: answer?.answer ?? '', score, session_id: SESSION_ID }),
       })
     } catch { /* non-fatal */ }
+    // Boost mastery proportional to rating — higher rating = better recall
+    const engaged = detectConcepts(query, answer?.sources ?? [])
+    onConceptBoost?.(engaged, parseFloat((score * 0.1).toFixed(3)))
     setRateStatus('rated')
   }
 
