@@ -1,50 +1,60 @@
-# CourseAtlas: A Self-Improving LLM Wiki for University Courses
+# StudyAtlas: A Personalized LLM Wiki for Students
 
 ## 1. Project Summary
 
-**CourseAtlas** is a self-improving LLM wiki for students. It turns scattered course materials, such as syllabi, readings, slides, notes, and assignment guides, into a persistent, connected knowledge base that grows over time.
+**StudyAtlas** is a personalized LLM wiki for students. It turns scattered course materials, personal notes, and study activity into a persistent knowledge base that is tailored to each student.
 
-Instead of only retrieving raw documents at query time, CourseAtlas incrementally builds and maintains a structured wiki. Each new document updates the existing knowledge base by creating course pages, concept pages, source summaries, and cross-course concept bridges.
+Instead of only answering questions from uploaded files, StudyAtlas builds and maintains a structured wiki that reflects:
 
-The project is designed for students at any university, not just one specific curriculum. A student can upload materials from multiple courses, and the system will help them understand how concepts connect across classes.
+- what the student is learning
+- how concepts connect across courses
+- which topics the student struggles with
+- what study context matters right now
+- which explanations and summaries were useful before
+
+The result is not just a course document viewer. It is a learning memory system that becomes more useful over time for one specific student.
 
 ## 2. Core Problem
 
-Students often have learning materials scattered across many places:
+Students usually manage learning across many disconnected places:
 
-- Course syllabi
-- Lecture slides
-- Reading PDFs
-- Personal notes
-- Assignment instructions
-- Discussion notes
-- External resources
+- course syllabi
+- lecture slides
+- reading PDFs
+- assignment instructions
+- class notes
+- personal study notes
+- office hour notes
+- saved chat answers
 
-Normal document Q&A or RAG systems can answer questions from these files, but they usually do not preserve long-term structure. Every time the user asks a question, the system re-retrieves chunks from the original documents and reconstructs the answer from scratch.
+Normal RAG or document Q&A tools can answer questions from these files, but they usually do not preserve long-term structure or student-specific context.
 
 This creates several problems:
 
-- Knowledge does not accumulate.
-- Cross-course connections are easy to miss.
-- Useful answers disappear into chat history.
-- Students do not get a maintained map of what they are learning.
-- The system cannot easily detect missing concepts, weak links, or contradictions.
+- knowledge does not accumulate
+- answers disappear into chat history
+- the system does not remember what this student already knows
+- the system cannot adapt explanations to the student's courses or weak areas
+- cross-course connections are easy to miss
+- there is no maintained map of the student's learning progress
 
 ## 3. Proposed Solution
 
-CourseAtlas creates a persistent course wiki that grows with every uploaded document and every useful question.
+StudyAtlas creates a persistent, personalized student wiki that grows with every upload and every useful interaction.
 
 The system maintains:
 
-- Course pages
-- Concept pages
-- Source summary pages
-- Cross-course bridge pages
-- An index
-- A changelog
-- A lint report
+- course pages
+- concept pages
+- source summary pages
+- student profile pages
+- study guide pages
+- cross-course bridge pages
+- an index
+- a changelog
+- a lint report
 
-The key idea is that the wiki is not manually written by the student. The system generates and updates it automatically.
+The core idea is that the wiki is not manually maintained. The system generates and updates it automatically, using both course content and student context.
 
 ## 4. Hackathon Fit
 
@@ -54,20 +64,26 @@ The hackathon asks participants to build an Agent LLM Wiki with three base opera
 2. **Query + Self-improve**
 3. **Lint**
 
-CourseAtlas directly implements all three.
+StudyAtlas directly implements all three.
 
-The project is not a generic chatbot. It is a persistent memory system for learning. The chatbot interface is only one way to interact with the wiki; the real product is the evolving knowledge base.
+It remains hackathon-fit because the MVP is still a clear memory loop:
+
+```text
+Ingest -> Build Wiki -> Query -> Save New Knowledge -> Lint
+```
+
+The personalization layer does not make the system bigger than necessary. It simply changes what the wiki stores and how answers are shaped.
 
 ## 5. Main User
 
-The main user is a university student taking multiple courses at the same time.
+The main user is a university student taking multiple courses and wanting a study assistant that remembers their own context.
 
 Example users:
 
-- A first-year student trying to understand how foundational concepts connect across courses
-- A biology student taking biology, chemistry, statistics, and writing
-- A social science student taking psychology, statistics, sociology, and research methods
-- An engineering student taking physics, calculus, programming, and design
+- a first-year student trying to connect ideas across classes
+- a pre-med student balancing biology, chemistry, and statistics
+- a humanities student juggling writing-heavy courses with research methods
+- an engineering student reviewing prerequisites across math, physics, and programming
 
 ## 6. Example Use Case
 
@@ -77,6 +93,12 @@ A student uploads materials from three courses:
 - Statistics 101
 - Academic Writing
 
+They also add:
+
+- their own lecture notes
+- a short statement of study goals
+- a list of concepts they find confusing
+
 The system builds pages such as:
 
 - `courses/intro_to_psychology.md`
@@ -84,43 +106,50 @@ The system builds pages such as:
 - `courses/academic_writing.md`
 - `concepts/correlation.md`
 - `concepts/evidence.md`
-- `concepts/hypothesis_testing.md`
+- `student/profile.md`
+- `student/confusing_topics.md`
+- `study_guides/evidence_for_this_student.md`
 - `bridges/evidence_across_psychology_statistics_writing.md`
 
 The student asks:
 
-> How does evidence mean different things in psychology, statistics, and writing?
+> Explain evidence in a way that helps me compare psychology, statistics, and writing, and focus on where I usually get confused.
 
-The system retrieves the relevant wiki pages, generates an answer, and saves the answer as a new bridge page.
+The system retrieves the relevant wiki pages, generates an answer, and saves the result as a personalized study guide or bridge page.
 
 ## 7. Core Features
 
-### 7.1 Document Ingestion
+### 7.1 Document and Context Ingestion
 
-Students upload course materials.
+Students upload course materials and optionally add personal context.
 
-Supported inputs for the MVP:
+Supported MVP inputs:
 
 - PDF syllabi
-- Text notes
-- Markdown files
-- Assignment instructions
+- text notes
+- markdown files
+- assignment instructions
+- short student profile text
+- short list of weak topics or study goals
 
 The ingestion system extracts:
 
-- Course name
-- Course description
-- Units or weeks
-- Topics
-- Concepts
-- Learning objectives
-- Assignments
-- Readings
-- Important terms
+- course name
+- course description
+- units or weeks
+- topics
+- concepts
+- learning objectives
+- assignments
+- readings
+- important terms
+- student goals
+- confusing topics
+- preferred examples or study focus
 
-The extracted information is added to the persistent wiki.
+This information is added to the persistent wiki.
 
-### 7.2 Living Wiki Generation
+### 7.2 Personalized Living Wiki Generation
 
 The system creates and updates markdown files.
 
@@ -137,16 +166,23 @@ wiki/
     evidence.md
     correlation.md
     hypothesis_testing.md
-    cognitive_bias.md
 
   sources/
     psychology_syllabus.md
     statistics_week_1_reading.md
     writing_assignment_guide.md
 
+  student/
+    profile.md
+    goals.md
+    confusing_topics.md
+
+  study_guides/
+    evidence_for_this_student.md
+    hypothesis_testing_review.md
+
   bridges/
     evidence_across_psychology_statistics_writing.md
-    correlation_across_psychology_and_statistics.md
 
   index.md
   changelog.md
@@ -160,42 +196,51 @@ The student can ask questions against the accumulated wiki.
 Example questions:
 
 - How does correlation in statistics relate to research methods in psychology?
-- What concepts do I need to understand before hypothesis testing?
+- What do I need to understand before hypothesis testing?
 - Which assignments require evidence-based reasoning?
-- How does the concept of bias appear across psychology, statistics, and writing?
+- Explain bias using examples from my current courses.
+- Which topics should I review first based on what I said I find confusing?
 
-The system retrieves relevant wiki pages and generates an answer using the accumulated knowledge base.
+The system retrieves relevant wiki pages and generates answers using the accumulated knowledge base plus the student's stored context.
 
 ### 7.4 Query + Self-Improve
 
-A key feature is that good answers can be saved back into the wiki.
+A key feature is that useful answers can be saved back into the wiki.
 
 For example, if the student asks:
 
-> Compare how evidence is used in biology, statistics, and writing.
+> Compare how evidence is used in biology, statistics, and writing for someone who struggles with claims versus data.
 
 The system can generate and save:
+
+```text
+study_guides/evidence_claims_vs_data.md
+```
+
+or
 
 ```text
 bridges/evidence_across_biology_statistics_writing.md
 ```
 
-This makes the wiki compound over time. The next time the student asks about evidence, the system does not need to reconstruct everything from raw documents.
+This makes the wiki compound over time. The next time the student asks a related question, the system can build from the saved explanation instead of reconstructing everything from raw documents.
 
 ### 7.5 Lint the Wiki
 
-The lint operation checks the health of the knowledge base.
+The lint operation checks the health of the knowledge base and the personalization layer.
 
 It detects:
 
-- Concepts mentioned often but missing their own page
-- Orphan pages with no inbound or outbound links
-- Duplicate concept pages
-- Course pages with missing assignment links
-- Concepts appearing in multiple courses but missing bridge pages
-- Weak prerequisite links
-- Possible contradictions between pages
-- Sources that were ingested but not linked to any concept
+- concepts mentioned often but missing their own page
+- orphan pages with no inbound or outbound links
+- duplicate concept pages
+- course pages with missing assignment links
+- concepts appearing in multiple courses but missing bridge pages
+- weak prerequisite links
+- possible contradictions between pages
+- sources that were ingested but not linked to any concept
+- student weak-topic pages with no linked study guide
+- repeated question themes that should become a saved guide
 
 Example lint output:
 
@@ -206,24 +251,25 @@ Lint Report
    Mentioned in psychology_syllabus.md and statistics_week_2.md.
 
 2. Weak bridge: "evidence"
-   Appears in Biology, Statistics, and Writing, but no bridge page exists.
+   Appears in Psychology, Statistics, and Writing, but no bridge page exists.
 
-3. Orphan page: "week_1_notes.md"
+3. Missing personalized guide: "hypothesis testing"
+   Marked as a confusing topic in student/confusing_topics.md but no study guide exists.
+
+4. Orphan page: "week_1_notes.md"
    This page has no links to course or concept pages.
-
-4. Possible duplicate:
-   "hypothesis_testing.md" and "testing_hypotheses.md" may describe the same concept.
 ```
 
-## 8. Most Creative Feature: Concept Bridge Generator
+## 8. Most Creative Feature: Personalized Concept Bridge Generator
 
-The Concept Bridge Generator explains how the same concept appears across multiple courses.
+The Personalized Concept Bridge Generator explains how the same concept appears across multiple courses, but adapted to one student's learning needs.
 
 Example input:
 
 ```text
 Concept: evidence
 Courses: Statistics, Biology, Writing
+Student difficulty: separating claims, data, and interpretation
 ```
 
 Example output:
@@ -231,74 +277,77 @@ Example output:
 ```text
 # Evidence Across Statistics, Biology, and Writing
 
+## What This Student Keeps Mixing Up
+The student often blends together raw data, interpretation, and argument.
+
 ## Statistics
-Evidence usually means data patterns, uncertainty, confidence intervals, p-values, or model-based inference.
+Evidence often means data patterns, uncertainty, confidence intervals, and inference.
 
 ## Biology
-Evidence usually means experimental observations, mechanisms, measurements, and reproducible findings.
+Evidence often means experimental observations, mechanisms, measurements, and reproducible findings.
 
 ## Writing
-Evidence usually means information selected and structured to support a thesis for a specific audience.
+Evidence often means information selected and structured to support a thesis for an audience.
 
 ## Cross-Course Connection
 Across these courses, evidence is not just "facts." It is information used to justify a claim under the standards of a specific discipline.
 
-## Study Insight
-To use evidence well, the student must ask:
-
-1. What claim am I supporting?
-2. What kind of evidence counts in this field?
-3. How strong is the evidence?
-4. What assumptions connect the evidence to the claim?
+## Personalized Study Insight
+Before using evidence, ask:
+1. What is the claim?
+2. What counts as evidence in this course?
+3. Am I describing data, interpreting it, or arguing from it?
+4. What assumption connects the evidence to the claim?
 ```
 
-This is the main “wow moment” of the demo.
+This is the main demo moment because it shows memory, synthesis, and personalization in one step.
 
 ## 9. Why This Is More Than a Chatbot
 
 A normal chatbot answers one question at a time.
 
-CourseAtlas maintains a growing knowledge structure.
+StudyAtlas maintains a growing, personalized knowledge structure.
 
-The difference:
-
-| Normal Chatbot / RAG | CourseAtlas |
+| Normal Chatbot / RAG | StudyAtlas |
 |---|---|
-| Retrieves chunks from raw documents | Maintains a persistent wiki |
+| Retrieves chunks from raw documents | Maintains a persistent student wiki |
 | Answers disappear into chat history | Useful answers become wiki pages |
-| No long-term structure | Course, concept, source, and bridge pages |
-| Weak cross-document memory | Cross-course concept graph |
-| No health check | Lint detects missing links and gaps |
+| No student memory | Stores goals, weak areas, and saved guides |
+| Weak cross-document memory | Builds cross-course concept bridges |
+| No health check | Lint detects gaps, missing links, and missing guides |
 
 ## 10. MVP Scope
 
-For the hackathon, do not build a full production system.
+For the hackathon, do not build a full academic platform.
 
-Build a small but clear working demo.
+Build a small, clear, working demo.
 
 ### MVP Inputs
 
 - 2 to 4 course syllabi
 - 1 to 2 extra readings or notes
+- 1 short student profile or weak-topics note
 
 ### MVP Outputs
 
-- Generated course pages
-- Generated concept pages
-- Generated bridge page
-- Search/query answer
-- Lint report
+- generated course pages
+- generated concept pages
+- generated student profile page
+- generated personalized study guide or bridge page
+- search/query answer
+- lint report
 
 ### MVP Demo Flow
 
 ```text
-1. Upload 2–4 course materials.
-2. Click “Build Wiki.”
-3. Show generated course pages and concept pages.
-4. Ask a cross-course question.
-5. Save the answer as a bridge page.
-6. Run lint.
-7. Show missing concepts, weak links, or suggested bridge pages.
+1. Upload 2-4 course materials.
+2. Add a short student context note.
+3. Click "Build Wiki."
+4. Show generated course pages, concept pages, and student profile page.
+5. Ask a personalized cross-course question.
+6. Save the answer as a study guide or bridge page.
+7. Run lint.
+8. Show missing concepts, weak links, or suggested personalized guides.
 ```
 
 ## 11. Suggested Tech Stack
@@ -315,14 +364,14 @@ Build a small but clear working demo.
 
 Start simple:
 
-- Keyword search
+- keyword search
 - BM25
-- Fuzzy matching
+- fuzzy matching
 
 Optional upgrade:
 
-- Embeddings
-- Vector search
+- embeddings
+- vector search
 - Cognee memory engine
 
 ### Graph
@@ -333,16 +382,16 @@ Optional upgrade:
 
 - React
 - Tailwind CSS
-- Simple upload page
-- Wiki viewer
-- Query box
-- Graph view
-- Lint report panel
+- simple upload page
+- wiki viewer
+- query box
+- graph view
+- lint report panel
 
 ## 12. File and Folder Structure
 
 ```text
-courseatlas/
+studyatlas/
   backend/
     main.py
     ingest.py
@@ -368,11 +417,14 @@ courseatlas/
     syllabi/
     readings/
     notes/
+    student_context/
 
   wiki/
     courses/
     concepts/
     sources/
+    student/
+    study_guides/
     bridges/
     index.md
     changelog.md
@@ -383,38 +435,41 @@ courseatlas/
     concepts.json
     graph.json
     source_log.json
+    student_profile.json
 ```
 
 ## 13. Backend Modules
 
 ### `ingest.py`
 
-Responsible for processing uploaded files.
+Responsible for processing uploaded files and student context.
 
 Tasks:
 
-- Read file text
-- Identify source type
-- Extract metadata
-- Send extracted data to wiki writer
+- read file text
+- identify source type
+- extract metadata
+- capture student profile notes
+- send extracted data to wiki writer
 
 ### `extractor.py`
 
-Responsible for extracting concepts.
+Responsible for extracting concepts and lightweight personalization signals.
 
 For MVP, this can use rules:
 
-- Hashtags
-- Headings
-- Repeated capitalized terms
-- Known concept lists
-- Assignment keywords
+- headings
+- repeated terms
+- known concept lists
+- assignment keywords
+- simple labels from student notes such as weak topics or goals
 
 Optional LLM upgrade:
 
-- Extract concepts with an LLM
-- Generate summaries
-- Identify prerequisite relationships
+- extract concepts with an LLM
+- generate summaries
+- identify prerequisite relationships
+- generate tailored explanations
 
 ### `wiki_writer.py`
 
@@ -422,11 +477,13 @@ Responsible for creating and updating markdown pages.
 
 Tasks:
 
-- Create course pages
-- Create concept pages
-- Create source summary pages
-- Update index
-- Update changelog
+- create course pages
+- create concept pages
+- create source summary pages
+- create student profile pages
+- create study guide pages
+- update index
+- update changelog
 
 ### `search.py`
 
@@ -442,9 +499,10 @@ Responsible for answering questions from the wiki.
 
 MVP approach:
 
-- Retrieve relevant pages
-- Generate a structured answer from snippets
-- Optionally save answer as a bridge page
+- retrieve relevant pages
+- include student profile context if available
+- generate a structured answer from snippets
+- optionally save answer as a bridge page or study guide
 
 ### `lint.py`
 
@@ -452,10 +510,11 @@ Responsible for checking wiki health.
 
 Rules:
 
-- Concept mentioned multiple times but no page exists
-- Page has no links
-- Concept appears in multiple courses but no bridge exists
-- Source not linked to any concept
+- concept mentioned multiple times but no page exists
+- page has no links
+- concept appears in multiple courses but no bridge exists
+- source not linked to any concept
+- student weak topic has no linked study guide
 
 ### `graph.py`
 
@@ -463,17 +522,21 @@ Responsible for concept graph generation.
 
 Nodes:
 
-- Courses
-- Concepts
-- Sources
-- Bridge pages
+- courses
+- concepts
+- sources
+- student topics
+- study guides
+- bridge pages
 
 Edges:
 
-- Course contains concept
-- Source mentions concept
-- Concept relates to concept
-- Bridge connects concept across courses
+- course contains concept
+- source mentions concept
+- concept relates to concept
+- bridge connects concept across courses
+- study guide targets concept
+- student profile marks topic as important
 
 ## 14. Team Split for Two People
 
@@ -481,40 +544,43 @@ Edges:
 
 Responsibilities:
 
-- File ingestion
-- Text parsing
-- Concept extraction
-- Wiki generation
-- Search/query logic
-- Lint logic
-- Backend API endpoints
+- file ingestion
+- text parsing
+- concept extraction
+- student context extraction
+- wiki generation
+- search/query logic
+- lint logic
+- backend API endpoints
 
 Suggested priority:
 
-1. Ingest
-2. Wiki generation
-3. Search/query
-4. Lint
+1. ingest
+2. wiki generation
+3. search/query
+4. lint
 
 ### Person 2: Frontend and Demo Experience
 
 Responsibilities:
 
-- Upload UI
-- Wiki page viewer
-- Query interface
-- Lint report display
-- Graph visualization
-- Demo script
-- Final pitch
+- upload UI
+- student context input box
+- wiki page viewer
+- query interface
+- lint report display
+- graph visualization
+- demo script
+- final pitch
 
 Suggested priority:
 
-1. Simple upload page
-2. Generated wiki viewer
-3. Query box
-4. Lint panel
-5. Graph view if time allows
+1. simple upload page
+2. student context input
+3. generated wiki viewer
+4. query box
+5. lint panel
+6. graph view if time allows
 
 ## 15. API Endpoints
 
@@ -522,7 +588,10 @@ Example FastAPI endpoints:
 
 ```text
 POST /ingest
-Upload and process a document.
+Upload and process documents.
+
+POST /student-context
+Save short student profile, goals, or confusing topics.
 
 GET /wiki/pages
 List generated wiki pages.
@@ -549,21 +618,22 @@ Cognee can be used as the memory backend if API access is available.
 
 However, Cognee is not strictly required for the MVP.
 
-Without Cognee, CourseAtlas can still demonstrate the core idea using:
+Without Cognee, StudyAtlas can still demonstrate the core idea using:
 
-- Markdown files
+- markdown files
 - JSON metadata
-- Keyword search
-- Graph relationships
-- Rule-based linting
+- keyword search
+- graph relationships
+- rule-based linting
 
 If Cognee is available, use it for:
 
-- Concept extraction
-- Semantic retrieval
-- Memory storage
-- Cross-document synthesis
-- Self-improvement suggestions
+- concept extraction
+- semantic retrieval
+- memory storage
+- cross-document synthesis
+- self-improvement suggestions
+- personalized study guidance
 
 Recommended strategy:
 
@@ -573,45 +643,50 @@ Build the local markdown-based system first. Then make Cognee an optional upgrad
 
 ### Opening
 
-Course materials are scattered across PDFs, notes, assignments, and readings. Existing RAG tools can answer questions, but they usually do not build lasting structure. CourseAtlas turns course materials into a persistent, self-improving wiki.
+Students have course materials everywhere, but they also have personal study context that normal RAG tools forget. StudyAtlas turns both course content and student context into a persistent, personalized wiki.
 
 ### Step 1: Ingest
 
 Upload syllabi or course notes.
 
+Add a short student note such as:
+
+> I struggle with hypothesis testing and often confuse claims, evidence, and interpretation.
+
 Show that the system extracts:
 
-- Courses
-- Topics
-- Concepts
-- Assignments
-- Readings
+- courses
+- topics
+- concepts
+- assignments
+- readings
+- student weak areas
 
 ### Step 2: Wiki Generation
 
 Show generated pages:
 
-- Course page
-- Concept page
-- Source page
-- Index
+- course page
+- concept page
+- student profile page
+- index
 
 ### Step 3: Query
 
 Ask:
 
-> How does evidence connect across statistics, biology, and writing?
+> Explain how evidence connects across statistics, biology, and writing for a student who struggles with claims versus data.
 
 Show answer generated from the wiki.
 
 ### Step 4: Self-Improve
 
-Click “Save as Bridge Page.”
+Click "Save as Study Guide."
 
 Show new page:
 
 ```text
-bridges/evidence_across_statistics_biology_writing.md
+study_guides/evidence_claims_vs_data.md
 ```
 
 ### Step 5: Lint
@@ -620,22 +695,22 @@ Run lint.
 
 Show suggestions:
 
-- Missing concept page
-- Weak bridge
-- Orphan page
-- Duplicate concept
+- missing concept page
+- weak bridge
+- missing study guide for a weak topic
+- orphan page
 
 ### Closing
 
-CourseAtlas is not just a chatbot. It is a persistent memory layer for learning. It helps students build a living map of their courses that becomes more useful over time.
+StudyAtlas is not just a chatbot. It is a persistent learning memory system that adapts to a student's own courses and confusion points, and becomes more useful over time.
 
 ## 18. Final Pitch
 
-> CourseAtlas is a self-improving LLM wiki for students. It turns scattered course materials into a persistent, connected knowledge base that grows with every document and every question. Instead of re-reading raw files for every answer, it maintains course pages, concept pages, cross-course bridges, and lint reports over time.
+> StudyAtlas is a personalized LLM wiki for students. It turns scattered course materials and student study context into a persistent knowledge base that grows with every document and every question. Instead of re-reading raw files every time, it maintains course pages, concept pages, personalized study guides, cross-course bridges, and lint reports over time.
 
 ## 19. One-Sentence Version
 
-> CourseAtlas helps students turn course materials into a living wiki that explains concepts, connects ideas across courses, and improves itself over time.
+> StudyAtlas helps students turn course materials and personal study context into a living wiki that explains concepts, connects ideas across courses, and improves itself over time.
 
 ## 20. What Not to Build
 
@@ -643,30 +718,32 @@ Avoid overbuilding.
 
 Do not focus on:
 
-- Training a new LLM
-- Building a full agent framework
-- Multi-agent systems
-- Complex authentication
-- Production-scale databases
-- Perfect UI
-- Perfect PDF parsing
+- training a new LLM
+- building a full agent framework
+- multi-agent systems
+- complex authentication
+- production-scale databases
+- perfect UI
+- perfect PDF parsing
+- detailed learning analytics dashboards
 
 For the hackathon, the important thing is a clear working memory loop:
 
 ```text
-Ingest → Build Wiki → Query → Save New Knowledge → Lint
+Ingest -> Build Wiki -> Query -> Save New Knowledge -> Lint
 ```
 
 ## 21. Success Criteria
 
 The demo is successful if it clearly shows:
 
-- Raw course materials become structured wiki pages.
-- The wiki persists after ingestion.
-- The system can answer from the wiki.
-- A useful answer can be saved back into the wiki.
-- The lint system can detect gaps or weak links.
+- raw course materials become structured wiki pages
+- the wiki persists after ingestion
+- the system stores student-specific context
+- the system can answer from the wiki with personalization
+- a useful answer can be saved back into the wiki
+- the lint system can detect gaps, weak links, or missing personalized guides
 
 The key message is:
 
-> Knowledge should compound over time instead of being re-derived from scratch every time a student asks a question.
+> Knowledge should compound over time, and it should compound in a way that is useful to the specific student asking for help.
