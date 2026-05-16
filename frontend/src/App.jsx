@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import UploadPanel     from './components/UploadPanel'
 import WikiViewer      from './components/WikiViewer'
@@ -7,10 +7,6 @@ import MasteryTimeline from './components/MasteryTimeline'
 import GraphView       from './components/GraphView'
 import LintReport      from './components/LintReport'
 import DecayToast      from './components/DecayToast'
-import { SESSION_ID }  from './session'
-
-const API = 'http://localhost:8000'
-const THRESHOLD = 0.4
 
 const TABS = [
   { id: 'ingest',  label: 'Ingest',  icon: '⬆' },
@@ -21,26 +17,39 @@ const TABS = [
   { id: 'lint',    label: 'Lint',    icon: '🔍' },
 ]
 
-function MasteryBadge() {
-  const [worst, setWorst] = useState(null)
+// 6 demo concepts seeded on ingest (§5 of the plan)
+const INITIAL_MASTERY = [
+  { slug: 'case_study',              score: 0.72 },
+  { slug: 'plausibility',            score: 0.58 },
+  { slug: 'hypothesis_development',  score: 0.66 },
+  { slug: 'evidence_based_argument', score: 0.64 },
+  { slug: 'research_design',         score: 0.70 },
+  { slug: 'confounders',             score: 0.51 },
+]
 
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const res = await fetch(`${API}/mastery-state?session_id=${encodeURIComponent(SESSION_ID)}`)
-        if (!res.ok) return
-        const data = await res.json()
-        const concepts = data.concepts ?? []
-        if (!concepts.length) { setWorst(null); return }
-        setWorst(concepts.reduce((a, b) => a.score < b.score ? a : b))
-      } catch { /* non-critical */ }
-    }
-    poll()
-    const t = setInterval(poll, 5000)
-    return () => clearInterval(t)
-  }, [])
+// Decay per second — plausibility crosses 0.40 in ~72 s after ingest (demo 2:02)
+const DECAY = {
+  case_study:              0.0004,
+  plausibility:            0.0025,
+  hypothesis_development:  0.0006,
+  evidence_based_argument: 0.0007,
+  research_design:         0.0003,
+  confounders:             0.0013,
+}
 
-  if (!worst) return null
+const THRESHOLD = 0.4
+
+// Excerpt shown in the toast for each concept
+const EXCERPTS = {
+  plausibility:
+    'Plausibility is the degree to which a claim is consistent with existing knowledge before definitive proof is available. In the Zika case, the geographic correlation and biological mechanism made the link plausible enough to act on.',
+  confounders:
+    'A confounder is a variable that correlates with both the exposure and the outcome, potentially distorting the observed relationship. Controlling for confounders is essential before drawing causal conclusions.',
+}
+
+function MasteryBadge({ masteryState }) {
+  if (!masteryState.length) return null
+  const worst    = masteryState.reduce((a, b) => a.score < b.score ? a : b)
   const score    = Math.round(worst.score * 100)
   const critical = worst.score < THRESHOLD
   return (
@@ -60,8 +69,53 @@ function MasteryBadge() {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('ingest')
-  const [wikiReady, setWikiReady] = useState(false)
+  const [activeTab,    setActiveTab]    = useState('ingest')
+  const [wikiReady,    setWikiReady]    = useState(false)
+  const [masteryState, setMasteryState] = useState([])
+  const [toastQueue,   setToastQueue]   = useState([])
+  const prevScores = useRef({})
+
+  // ── Seed mastery + start decay timer after wiki is built ─────────────────
+  useEffect(() => {
+    if (!wikiReady) return
+    const now = new Date().toISOString()
+    const initial = INITIAL_MASTERY.map(c => ({ ...c, knownAsOf: now }))
+    setMasteryState(initial)
+    // seed prevScores so we don't immediately fire toasts
+    prevScores.current = Object.fromEntries(initial.map(c => [c.slug, c.score]))
+
+    const interval = setInterval(() => {
+      setMasteryState(prev =>
+        prev.map(c => ({
+          ...c,
+          score: Math.max(0, c.score - (DECAY[c.slug] ?? 0.001)),
+        }))
+      )
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [wikiReady])
+
+  // ── Detect threshold crossings → fire toast ───────────────────────────────
+  useEffect(() => {
+    for (const c of masteryState) {
+      const prev = prevScores.current[c.slug]
+      if (prev !== undefined && prev >= THRESHOLD && c.score < THRESHOLD) {
+        setToastQueue(q => [
+          ...q,
+          {
+            id:       Date.now() + Math.random(),
+            concept:  c.slug,
+            score:    c.score,
+            knownAsOf: c.knownAsOf,
+            excerpt:  EXCERPTS[c.slug] ?? `Your understanding of "${c.slug.replace(/_/g, ' ')}" is fading. Review it now.`,
+          },
+        ])
+      }
+      prevScores.current[c.slug] = c.score
+    }
+  }, [masteryState])
+
+  const dismissToast = id => setToastQueue(q => q.filter(t => t.id !== id))
 
   const handleWikiBuilt = () => {
     setWikiReady(true)
@@ -76,7 +130,7 @@ export default function App() {
             <span className="text-2xl">🎓</span>
             <span className="text-xl font-bold text-sky-700">StudyAtlas</span>
           </div>
-          <MasteryBadge />
+          <MasteryBadge masteryState={masteryState} />
           <nav className="flex gap-1 ml-auto">
             {TABS.map(tab => (
               <button
@@ -98,18 +152,18 @@ export default function App() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         {activeTab === 'ingest'  && <UploadPanel onWikiBuilt={handleWikiBuilt} />}
-        {activeTab === 'wiki'    && <WikiViewer ready={wikiReady} />}
-        {activeTab === 'query'   && <QueryBox />}
-        {activeTab === 'mastery' && <MasteryTimeline />}
-        {activeTab === 'graph'   && <GraphView />}
-        {activeTab === 'lint'    && <LintReport />}
+        {activeTab === 'wiki'    && <WikiViewer  ready={wikiReady} masteryState={masteryState} />}
+        {activeTab === 'query'   && <QueryBox    masteryState={masteryState} />}
+        {activeTab === 'mastery' && <MasteryTimeline masteryState={masteryState} />}
+        {activeTab === 'graph'   && <GraphView   masteryState={masteryState} />}
+        {activeTab === 'lint'    && <LintReport  />}
       </main>
 
       <footer className="text-center text-xs text-gray-400 py-3 border-t border-gray-100">
         StudyAtlas — knowledge has a half-life
       </footer>
 
-      <DecayToast />
+      <DecayToast toasts={toastQueue} onDismiss={dismissToast} />
     </div>
   )
 }

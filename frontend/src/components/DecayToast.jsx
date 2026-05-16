@@ -7,12 +7,12 @@ function Toast({ toast, onDismiss }) {
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    const enter = requestAnimationFrame(() => setVisible(true))
-    const exit = setTimeout(() => {
+    const frame = requestAnimationFrame(() => setVisible(true))
+    const timer = setTimeout(() => {
       setVisible(false)
       setTimeout(() => onDismiss(toast.id), 350)
     }, 9000)
-    return () => { cancelAnimationFrame(enter); clearTimeout(exit) }
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer) }
   }, [])
 
   const dismiss = () => {
@@ -20,17 +20,15 @@ function Toast({ toast, onDismiss }) {
     setTimeout(() => onDismiss(toast.id), 350)
   }
 
-  const pct = Math.round(toast.score * 100)
+  const pct = Math.round((toast.score ?? 0) * 100)
 
   return (
     <div
-      className={`w-80 bg-white rounded-2xl border-2 border-red-300 shadow-2xl overflow-hidden transition-all duration-350 ease-out ${
+      className={`w-80 bg-white rounded-2xl border-2 border-red-300 shadow-2xl overflow-hidden transition-all duration-300 ease-out ${
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
       }`}
     >
-      {/* Danger stripe */}
       <div className="h-1.5 bg-gradient-to-r from-red-500 to-red-400" />
-
       <div className="p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
@@ -44,14 +42,12 @@ function Toast({ toast, onDismiss }) {
             onClick={dismiss}
             className="text-gray-300 hover:text-gray-500 transition-colors shrink-0 mt-0.5"
             aria-label="Dismiss"
-          >
-            ✕
-          </button>
+          >✕</button>
         </div>
 
         <div className="bg-red-50 border border-red-100 rounded-xl p-3">
           <p className="text-sm font-bold text-gray-800 capitalize mb-1">
-            {toast.concept.replace(/_/g, ' ')}
+            {(toast.concept ?? '').replace(/_/g, ' ')}
           </p>
           {toast.excerpt && (
             <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{toast.excerpt}</p>
@@ -66,7 +62,6 @@ function Toast({ toast, onDismiss }) {
           )}
         </div>
 
-        {/* Decay bar */}
         <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div
             className="h-full bg-red-400 rounded-full animate-pulse"
@@ -78,43 +73,50 @@ function Toast({ toast, onDismiss }) {
   )
 }
 
-export default function DecayToast() {
-  const [toasts, setToasts] = useState([])
+// Accepts either mock toasts from App state, or real SSE events from backend
+export default function DecayToast({ toasts: mockToasts = [], onDismiss: mockDismiss }) {
+  const [sseToasts, setSseToasts] = useState([])
   const esRef = useRef(null)
 
+  // Try SSE — silently ignore if backend is not running
   useEffect(() => {
-    const es = new EventSource(
-      `${API}/events/decay?session_id=${encodeURIComponent(SESSION_ID)}`
-    )
-    esRef.current = es
-
-    es.onmessage = (e) => {
-      try {
-        const d = JSON.parse(e.data)
-        setToasts(prev => [
-          ...prev.slice(-2),
-          {
-            id: Date.now(),
-            concept:    d.concept,
-            score:      d.score ?? 0,
-            excerpt:    d.page_excerpt ?? (d.page_content ?? '').slice(0, 220),
-            knownAsOf:  d.known_as_of,
-          },
-        ])
-      } catch { /* ignore malformed events */ }
-    }
-
-    return () => es.close()
+    try {
+      const es = new EventSource(
+        `${API}/events/decay?session_id=${encodeURIComponent(SESSION_ID)}`
+      )
+      esRef.current = es
+      es.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data)
+          setSseToasts(prev => [
+            ...prev.slice(-2),
+            {
+              id:       Date.now(),
+              concept:  d.concept,
+              score:    d.score ?? 0,
+              excerpt:  d.page_excerpt ?? (d.page_content ?? '').slice(0, 220),
+              knownAsOf: d.known_as_of,
+            },
+          ])
+        } catch { /* malformed event — ignore */ }
+      }
+      es.onerror = () => es.close()
+    } catch { /* browser blocked SSE — ignore */ }
+    return () => esRef.current?.close()
   }, [])
 
-  const dismiss = (id) => setToasts(prev => prev.filter(t => t.id !== id))
+  const dismissSse = id => setSseToasts(prev => prev.filter(t => t.id !== id))
 
-  if (toasts.length === 0) return null
+  const all = [...mockToasts, ...sseToasts]
+  if (!all.length) return null
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col-reverse gap-3">
-      {toasts.map(t => (
-        <Toast key={t.id} toast={t} onDismiss={dismiss} />
+      {mockToasts.map(t => (
+        <Toast key={t.id} toast={t} onDismiss={mockDismiss} />
+      ))}
+      {sseToasts.map(t => (
+        <Toast key={t.id} toast={t} onDismiss={dismissSse} />
       ))}
     </div>
   )

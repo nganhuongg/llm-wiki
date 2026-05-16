@@ -347,7 +347,68 @@ function groupByFolder(pages) {
   return groups
 }
 
-export default function WikiViewer({ ready = false }) {
+const THRESHOLD = 0.4
+
+function masteryColor(score) {
+  if (score > 0.7)        return '#22c55e'
+  if (score >= THRESHOLD) return '#fbbf24'
+  return '#ef4444'
+}
+
+function CompactMasteryPanel({ concepts }) {
+  return (
+    <div className="w-52 shrink-0 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+      <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+        <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Mastery</span>
+        <span className="flex items-center gap-1 text-xs text-green-500">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+          live
+        </span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3.5">
+        {concepts.map(c => {
+          const pct      = Math.round(c.score * 100)
+          const color    = masteryColor(c.score)
+          const critical = c.score < THRESHOLD
+          return (
+            <div key={c.slug}>
+              <div className="flex items-center justify-between mb-1">
+                <span
+                  className="text-xs font-medium capitalize truncate"
+                  style={{ color: critical ? '#b91c1c' : '#374151' }}
+                >
+                  {c.slug.replace(/_/g, ' ')}
+                </span>
+                <span className="text-xs font-bold ml-1 shrink-0" style={{ color }}>
+                  {pct}%
+                </span>
+              </div>
+              <div className="relative h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                {/* 40% threshold line */}
+                <div
+                  className="absolute top-0 bottom-0 w-px bg-red-300 z-10"
+                  style={{ left: `${THRESHOLD * 100}%` }}
+                />
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ease-out ${critical ? 'animate-pulse' : ''}`}
+                  style={{ width: `${pct}%`, backgroundColor: color }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="px-3 py-2 border-t border-gray-50 flex items-center gap-1.5">
+        <span className="w-px h-3 bg-red-300 inline-block rounded" />
+        <span className="text-xs text-gray-400">40% threshold</span>
+      </div>
+    </div>
+  )
+}
+
+export default function WikiViewer({ ready = false, masteryState = [] }) {
   const [pages, setPages]       = useState([])
   const [selected, setSelected] = useState(null)
   const [content, setContent]   = useState('')
@@ -469,7 +530,7 @@ export default function WikiViewer({ ready = false }) {
       </div>
 
       {/* Page content */}
-      <div className="flex-1 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col">
+      <div className="flex-1 min-w-0 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col">
         {selected ? (
           <>
             <div className="px-6 py-3 border-b border-gray-100 flex items-center gap-3">
@@ -499,6 +560,11 @@ export default function WikiViewer({ ready = false }) {
           </div>
         )}
       </div>
+
+      {/* Compact mastery panel — right side, visible after wiki is built */}
+      {ready && masteryState.length > 0 && (
+        <CompactMasteryPanel concepts={masteryState} />
+      )}
     </div>
   )
 }

@@ -53,19 +53,22 @@ function MasteryBar({ slug, score, knownAsOf }) {
   )
 }
 
-export default function MasteryTimeline() {
-  const [concepts, setConcepts] = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState('')
-  const [updated, setUpdated]   = useState(null)
+export default function MasteryTimeline({ masteryState = [] }) {
+  const [apiConcepts, setApiConcepts] = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState('')
+  const [updated, setUpdated]         = useState(null)
   const timerRef = useRef(null)
+
+  // Use prop data when available; only poll API as fallback
+  const useProp = masteryState.length > 0
 
   const poll = async () => {
     try {
       const res = await fetch(`${API}/mastery-state?session_id=${encodeURIComponent(SESSION_ID)}`)
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
-      setConcepts(data.concepts ?? [])
+      setApiConcepts(data.concepts ?? [])
       setUpdated(new Date())
       setError('')
     } catch (e) {
@@ -76,10 +79,20 @@ export default function MasteryTimeline() {
   }
 
   useEffect(() => {
+    if (useProp) { setLoading(false); return }
     poll()
     timerRef.current = setInterval(poll, 2000)
     return () => clearInterval(timerRef.current)
-  }, [])
+  }, [useProp])
+
+  // When prop is provided, treat it as always-fresh
+  useEffect(() => {
+    if (useProp) setUpdated(new Date())
+  }, [masteryState])
+
+  const concepts = useProp
+    ? masteryState.map(c => ({ slug: c.slug, score: c.score, known_as_of: c.knownAsOf }))
+    : apiConcepts
 
   const sorted = [...concepts].sort((a, b) => a.score - b.score)
   const strong    = concepts.filter(c => c.score > 0.7).length
@@ -92,7 +105,9 @@ export default function MasteryTimeline() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Mastery State</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Live from Redis — decays as you forget, grows as you review. Polled every 2 s.
+            {useProp
+              ? 'Decays as you forget, grows as you review. Live from session.'
+              : 'Live from Redis — decays as you forget, grows as you review. Polled every 2 s.'}
           </p>
         </div>
         {updated && (
