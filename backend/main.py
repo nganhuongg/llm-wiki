@@ -79,7 +79,6 @@ async def get_mastery_state(session_id: str = Query(...)) -> dict:
 # ============================================================================
 @app.get("/events/decay/{session_id}")
 async def get_decay_events(session_id: str) -> dict:
-    """Returns the pub/sub channel name and polling instructions for frontend toast."""
     return {
         "channel": f"decay:warn:{session_id}",
         "poll_endpoint": "/mastery-state",
