@@ -5,9 +5,9 @@ from __future__ import annotations
 from . import memory, search
 
 
-async def answer(question: str, k: int = 5) -> dict:
+async def answer(question: str, k: int = 5, session_id: str | None = None) -> dict:
     hits = search.search(question, k=k)
-    recalled = await memory.recall(question, limit=k)
+    recalled = await memory.recall(question, limit=k, session_id=session_id)
 
     sections = []
     for h in hits:
@@ -27,6 +27,7 @@ async def answer(question: str, k: int = 5) -> dict:
     return {
         "question": question,
         "answer": answer_md,
+        "sources": [h["path"] for h in hits],
         "hits": hits,
         "recalled": recalled,
         "backend": memory.backend_name(),

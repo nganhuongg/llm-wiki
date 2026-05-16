@@ -21,13 +21,19 @@ def build() -> dict:
         nodes.append({"id": f"course:{slug}", "label": entry["name"], "type": "course"})
         for concept in entry.get("concepts", []):
             cslug = concept.lower().replace(" ", "_")
-            edges.append({"from": f"course:{slug}", "to": f"concept:{cslug}", "label": "covers"})
+            edges.append({"source": f"course:{slug}", "target": f"concept:{cslug}", "label": "covers"})
 
     for slug, entry in concepts.items():
-        nodes.append({"id": f"concept:{slug}", "label": entry["name"], "type": "concept"})
+        nodes.append({"id": f"concept:{slug}", "label": entry["name"], "slug": slug, "type": "concept"})
 
     for p in config.BRIDGES_DIR.glob("*.md"):
         nodes.append({"id": f"bridge:{p.stem}", "label": p.stem, "type": "bridge"})
+    for p in config.SOURCES_DIR.glob("*.md"):
+        nodes.append({"id": f"source:{p.stem}", "label": p.stem, "type": "source"})
+    for p in config.STUDENT_DIR.glob("*.md"):
+        nodes.append({"id": f"student:{p.stem}", "label": p.stem, "type": "student"})
+    for p in config.STUDY_GUIDES_DIR.glob("*.md"):
+        nodes.append({"id": f"study_guide:{p.stem}", "label": p.stem, "type": "study_guide"})
 
     graph = {"nodes": nodes, "edges": edges}
     config.GRAPH_JSON.write_text(json.dumps(graph, indent=2), encoding="utf-8")

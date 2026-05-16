@@ -8,7 +8,7 @@ from .extractor import extract
 from .parser import read_text
 
 
-async def ingest_file(path: Path) -> dict:
+async def ingest_file(path: Path, session_id: str | None = None) -> dict:
     text = read_text(path)
     extraction = extract(text, path)
 
@@ -23,6 +23,12 @@ async def ingest_file(path: Path) -> dict:
         f"Concepts: {', '.join(extraction.concepts)}\n\n"
         f"{text[:4000]}"
     )
+    if session_id:
+        await memory.remember(
+            f"Session source: {path.name}\nConcepts: {', '.join(extraction.concepts)}",
+            session_id=session_id,
+        )
+        await memory.seed_mastery(session_id, extraction.concepts[:12], text)
 
     return {
         "course": extraction.course,

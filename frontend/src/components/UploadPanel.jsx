@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
+import { SESSION_ID } from '../session'
 
 const API = 'http://localhost:8000'
 
@@ -97,7 +98,7 @@ export default function UploadPanel({ onWikiBuilt }) {
         setProgress(`Uploading ${i + 1}/${newFiles.length}: ${entry.file.name}`)
         const form = new FormData()
         form.append('file', entry.file)
-        const res = await fetch(`${API}/ingest`, { method: 'POST', body: form })
+        const res = await fetch(`${API}/ingest?session_id=${encodeURIComponent(SESSION_ID)}`, { method: 'POST', body: form })
         if (!res.ok) throw new Error(`Failed to upload ${entry.file.name}`)
         setNewFiles(prev => prev.map(f =>
           f.file.name === entry.file.name ? { ...f, status: 'uploaded' } : f
@@ -111,7 +112,7 @@ export default function UploadPanel({ onWikiBuilt }) {
         const res = await fetch(`${API}/ingest-assets`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: name }),
+          body: JSON.stringify({ filename: name, session_id: SESSION_ID }),
         })
         if (!res.ok) throw new Error(`Failed to ingest ${name}`)
       }
@@ -122,7 +123,7 @@ export default function UploadPanel({ onWikiBuilt }) {
         await fetch(`${API}/student-context`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ context: studentContext }),
+          body: JSON.stringify({ context: studentContext, session_id: SESSION_ID }),
         })
       }
 
