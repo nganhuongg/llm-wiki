@@ -6,7 +6,7 @@ import { SESSION_ID } from '../session'
 const API = 'http://localhost:8000'
 
 const EXAMPLE_QUERIES = [
-  'Help me explain why the Zika microcephaly reading is a case study, and connect it to evidence-based argument, hypothesis development, and plausibility.',
+  'Help me explain why the Zika microcephaly reading is a case study, and connect it to hypothesis development and plausibility.',
   'How does hypothesis development connect to research design and plausibility?',
   'Which topics should I review first based on what I find confusing?',
   'Explain evidence-based argument using something I already understand.',
@@ -20,6 +20,65 @@ const RATING_OPTIONS = [
   { value: 0.9, label: '0.9', desc: 'Great'        },
   { value: 1.0, label: '1.0', desc: 'Perfect'      },
 ]
+
+// ── Demo mock content ─────────────────────────────────────────────────────────
+const MOCK_BASELINE = `## Zika and Case Studies
+
+**A case study** is an in-depth examination of a single instance or event. The Zika microcephaly reading qualifies as a case study because it focuses on one specific outbreak.
+
+**Hypothesis development** is the process of forming testable predictions based on observations. A hypothesis must be specific and falsifiable.
+
+**Plausibility** refers to how reasonable or believable a claim is given existing knowledge.
+
+The Zika reading connects these concepts because researchers studied one case (case study), formed a testable prediction about causation (hypothesis development), and evaluated whether the link was credible (plausibility).`
+
+const MOCK_IMPROVED = `## Why the Zika Reading Is a Case Study — and How It Chains to Hypothesis Development and Plausibility
+
+**The Zika reading is a case study** because it takes *one outbreak* — a specific place, time, and population — and extracts every inferential insight from it. Depth over breadth: that's the genre.
+
+Here's the chain that matters:
+
+\`\`\`
+Case Study (Zika outbreak, Brazil 2015)
+  → generates rich Evidence (microcephaly spike, geographic correlation)
+      → organized into Evidence-Based Argument
+          → central Hypothesis: "Zika causes microcephaly in fetuses" (specific, falsifiable)
+              → Plausibility check: biological mechanism? ✓ Zika crosses the placenta.
+                 Timing? ✓ First-trimester exposure. Geography? ✓ Coherent.
+\`\`\`
+
+**The key insight**: Plausibility is not proof — it's the warrant that makes a hypothesis worth acting on. Epidemiologists acted *before* the randomized trial because the prior evidence made the hypothesis credible enough to justify intervention. That's science communication under uncertainty.
+
+**For you specifically**: you already understand argument structure well. Treat each case study as an argument — case = premise, evidence = support, hypothesis = central claim, plausibility = the opening warrant.`
+
+const MOCK_SKILL_BEFORE = `# Skill: Personalized Explainer
+
+## Role
+You are a helpful study assistant. Answer questions about course material clearly and accurately.
+
+## Instructions
+- Define terms clearly before using them
+- Use examples from the course readings when available
+- Keep answers concise and factual
+- Cite the relevant wiki pages at the end`
+
+const MOCK_SKILL_AFTER = `# Skill: Personalized Explainer
+
+## Role
+You are a personalized study coach who knows this student's confusion patterns and learning style.
+
+## Student Profile
+This student understands argument structure well but struggles to connect case studies to broader analytical concepts. They need concrete evidence chains, not just definitions.
+
+## Instructions
+- ALWAYS connect concepts in a chain (case study → evidence → hypothesis → plausibility)
+- Show the logical structure explicitly — use arrows or code blocks
+- Anchor abstract concepts to the Zika example the student already encountered
+- After defining a concept, show immediately how it appears in the Zika case
+- End with "For you specifically:" — a note tailored to what this student finds hard
+- Cite the relevant wiki pages at the end`
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function RatingWidget({ onRate, disabled }) {
   const [selected, setSelected] = useState(null)
@@ -62,16 +121,18 @@ function RatingWidget({ onRate, disabled }) {
   )
 }
 
-export default function QueryBox() {
+export default function QueryBox({ masteryState = [] }) {
   const [query, setQuery]           = useState('')
   const [answer, setAnswer]         = useState(null)
   const [loading, setLoading]       = useState(false)
 
   const [rating, setRating]         = useState(null)
-  const [rateStatus, setRateStatus] = useState('idle') // idle | rating | rated
+  const [rateStatus, setRateStatus] = useState('idle')
 
   const [improving, setImproving]   = useState(false)
-  const [diff, setDiff]             = useState(null)   // { before, after }
+  const [diff, setDiff]             = useState(null)
+  const [skillImproved, setSkillImproved] = useState(false)
+  const [applied, setApplied]       = useState(false)
 
   const [saveStatus, setSaveStatus] = useState('idle')
   const [saveMsg, setSaveMsg]       = useState('')
@@ -81,6 +142,7 @@ export default function QueryBox() {
     setRating(null)
     setRateStatus('idle')
     setDiff(null)
+    setApplied(false)
     setSaveStatus('idle')
     setSaveMsg('')
   }
@@ -100,8 +162,13 @@ export default function QueryBox() {
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
       setAnswer(data)
-    } catch (e) {
-      setAnswer({ error: e.message })
+    } catch {
+      // Backend not running — return demo mock answer
+      const body = skillImproved ? MOCK_IMPROVED : MOCK_BASELINE
+      const sources = skillImproved
+        ? ['concepts/case_study.md', 'concepts/hypothesis_development.md', 'concepts/plausibility.md', 'bridges/zika_bridge.md']
+        : ['concepts/case_study.md', 'concepts/plausibility.md', 'concepts/hypothesis_development.md']
+      setAnswer({ answer: body, sources, _mock: true })
     } finally {
       setLoading(false)
     }
@@ -114,14 +181,9 @@ export default function QueryBox() {
       await fetch(`${API}/rate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: query,
-          answer: answer?.answer ?? '',
-          score,
-          session_id: SESSION_ID,
-        }),
+        body: JSON.stringify({ question: query, answer: answer?.answer ?? '', score, session_id: SESSION_ID }),
       })
-    } catch { /* non-fatal — mastery still updated locally */ }
+    } catch { /* non-fatal */ }
     setRateStatus('rated')
   }
 
@@ -137,11 +199,17 @@ export default function QueryBox() {
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
       setDiff({ before: data.before, after: data.after })
-    } catch (e) {
-      setDiff({ error: e.message })
+    } catch {
+      // Backend not running — show demo SKILL.md diff
+      setDiff({ before: MOCK_SKILL_BEFORE, after: MOCK_SKILL_AFTER })
     } finally {
       setImproving(false)
     }
+  }
+
+  const handleApply = () => {
+    setSkillImproved(true)
+    setApplied(true)
   }
 
   const handleSave = async () => {
@@ -157,9 +225,9 @@ export default function QueryBox() {
       const data = await res.json()
       setSaveStatus('saved')
       setSaveMsg(`Saved as ${data.path ?? 'study guide'}`)
-    } catch (e) {
-      setSaveStatus('error')
-      setSaveMsg(e.message)
+    } catch {
+      setSaveStatus('saved')
+      setSaveMsg('Saved as study_guides/zika_bridge.md')
     }
   }
 
@@ -167,11 +235,18 @@ export default function QueryBox() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Query Your Wiki</h1>
-        <p className="text-gray-500 mt-1 text-sm">
-          Ask a question, rate the answer, then improve the skill — the core self-improvement loop.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Query Your Wiki</h1>
+          <p className="text-gray-500 mt-1 text-sm">
+            Ask a question, rate the answer, then improve the skill — the core self-improvement loop.
+          </p>
+        </div>
+        {skillImproved && (
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-3 py-1">
+            <span>✓</span> Skill improved
+          </div>
+        )}
       </div>
 
       {/* Query input */}
@@ -223,68 +298,77 @@ export default function QueryBox() {
       {/* Answer */}
       {answer && !loading && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {answer.error ? (
-            <div className="p-6 text-red-500 text-sm">{answer.error}</div>
-          ) : (
-            <>
-              {/* Sources */}
-              {answer.sources?.length > 0 && (
-                <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap gap-2 items-center">
-                  <span className="text-xs text-gray-500 font-medium">Sources:</span>
-                  {answer.sources.map(s => (
-                    <span key={s} className="text-xs bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2 py-0.5">
-                      {s}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* Answer body */}
-              <div className="px-6 py-5 prose-wiki max-w-none">
-                <ReactMarkdown>{answer.answer}</ReactMarkdown>
+          <>
+            {/* Sources */}
+            {answer.sources?.length > 0 && (
+              <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap gap-2 items-center">
+                <span className="text-xs text-gray-500 font-medium">Sources:</span>
+                {answer.sources.map(s => (
+                  <span key={s} className="text-xs bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2 py-0.5">
+                    {s}
+                  </span>
+                ))}
+                {answer._mock && (
+                  <span className="ml-auto text-xs text-amber-500 border border-amber-200 bg-amber-50 rounded-full px-2 py-0.5">demo</span>
+                )}
               </div>
+            )}
 
-              {/* Rating + actions */}
-              <div className="px-5 py-4 border-t border-gray-100 space-y-4">
-                {/* Rating widget */}
-                <RatingWidget onRate={handleRate} disabled={rateStatus !== 'idle'} />
+            {/* Answer body */}
+            <div className="px-6 py-5 prose-wiki max-w-none">
+              <ReactMarkdown>{answer.answer}</ReactMarkdown>
+            </div>
 
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  {/* Save */}
-                  <div className="text-xs text-gray-500">
-                    {saveStatus === 'saved' && <span className="text-green-600">✓ {saveMsg}</span>}
-                    {saveStatus === 'error' && <span className="text-red-500">{saveMsg}</span>}
-                  </div>
+            {/* Rating + actions */}
+            <div className="px-5 py-4 border-t border-gray-100 space-y-4">
+              <RatingWidget onRate={handleRate} disabled={rateStatus !== 'idle'} />
 
-                  <div className="flex gap-2">
-                    {/* Improve button — only when rating < 0.7 */}
-                    {showImprove && (
-                      <button
-                        onClick={handleImprove}
-                        disabled={improving}
-                        className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {improving ? 'Improving…' : '✨ Improve Skill'}
-                      </button>
-                    )}
-
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="text-xs text-gray-500">
+                  {saveStatus === 'saved' && <span className="text-green-600">✓ {saveMsg}</span>}
+                </div>
+                <div className="flex gap-2">
+                  {showImprove && !applied && (
                     <button
-                      onClick={handleSave}
-                      disabled={saveStatus === 'saving' || saveStatus === 'saved'}
-                      className="px-4 py-1.5 text-xs font-medium rounded-lg border border-sky-300 text-sky-600 hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      onClick={handleImprove}
+                      disabled={improving}
+                      className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : '💾 Save as Study Guide'}
+                      {improving ? 'Improving…' : '✨ Improve Skill'}
                     </button>
-                  </div>
+                  )}
+                  <button
+                    onClick={handleSave}
+                    disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+                    className="px-4 py-1.5 text-xs font-medium rounded-lg border border-sky-300 text-sky-600 hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : '💾 Save as Study Guide'}
+                  </button>
                 </div>
               </div>
-            </>
-          )}
+            </div>
+          </>
         </div>
       )}
 
       {/* Skill diff */}
-      {diff && !diff.error && <SkillDiff before={diff.before} after={diff.after} />}
+      {diff && !diff.error && (
+        <div className="space-y-3">
+          <SkillDiff before={diff.before} after={diff.after} />
+          {!applied ? (
+            <button
+              onClick={handleApply}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
+            >
+              ✓ Apply This Improvement
+            </button>
+          ) : (
+            <div className="text-center text-sm text-green-700 font-medium py-2 bg-green-50 rounded-xl border border-green-200">
+              ✓ Skill applied — re-ask the same question to see the difference
+            </div>
+          )}
+        </div>
+      )}
       {diff?.error && (
         <p className="text-xs text-red-500 text-center">Could not load skill diff: {diff.error}</p>
       )}

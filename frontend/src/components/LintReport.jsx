@@ -1,11 +1,53 @@
 import { useState, useEffect } from 'react'
 
 const API = 'http://localhost:8000'
+const THRESHOLD = 0.4
 
 const SEVERITY_CONFIG = {
-  error:   { color: 'bg-red-50 border-red-200 text-red-700',   dot: 'bg-red-500',   label: 'Error' },
+  error:   { color: 'bg-red-50 border-red-200 text-red-700',     dot: 'bg-red-500',   label: 'Error'   },
   warning: { color: 'bg-amber-50 border-amber-200 text-amber-700', dot: 'bg-amber-500', label: 'Warning' },
-  info:    { color: 'bg-sky-50 border-sky-200 text-sky-700',   dot: 'bg-sky-500',   label: 'Info' },
+  info:    { color: 'bg-sky-50 border-sky-200 text-sky-700',     dot: 'bg-sky-500',   label: 'Info'    },
+}
+
+function mockLintFromMastery(masteryState) {
+  const issues = []
+  const fading = masteryState.filter(c => c.score < THRESHOLD)
+  for (const c of fading) {
+    const pct = Math.round(c.score * 100)
+    issues.push({
+      severity: 'warning',
+      title: `Fading concept: ${c.slug.replace(/_/g, ' ')}`,
+      detail: `Mastery at ${pct}% — below the 40% review threshold. Visit the concept page and re-read the relevant reading.`,
+      pages: [`concepts/${c.slug}.md`],
+    })
+  }
+
+  // Always include structural issues for demo richness
+  issues.push({
+    severity: 'warning',
+    title: 'Bridge page missing: plausibility ↔ confounders',
+    detail: 'No page connects these two related concepts. A bridge helps surface hidden dependencies.',
+    pages: [],
+  })
+  issues.push({
+    severity: 'info',
+    title: 'Student profile is thin',
+    detail: 'Only one confusion note ingested. Add more context in Ingest → Student Context to get personalized explanations.',
+    pages: ['student/profile.md'],
+  })
+  issues.push({
+    severity: 'info',
+    title: 'Orphan source: ea51-syllabus',
+    detail: 'This source is not linked from any concept page.',
+    pages: ['sources/ea51_syllabus.md'],
+  })
+
+  return {
+    issues,
+    generated_at: new Date().toISOString(),
+    wiki_page_count: 14,
+    _mock: true,
+  }
 }
 
 function LintItem({ issue }) {
@@ -33,23 +75,22 @@ function LintItem({ issue }) {
   )
 }
 
-export default function LintReport() {
+export default function LintReport({ masteryState = [] }) {
   const [report, setReport]   = useState(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
   const [filter, setFilter]   = useState('all')
 
   const runLint = async () => {
     setLoading(true)
-    setError('')
     setReport(null)
     try {
       const res = await fetch(`${API}/lint`)
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
       setReport(data)
-    } catch (e) {
-      setError(e.message)
+    } catch {
+      // Backend not running — synthesize lint from frontend mastery state
+      setReport(mockLintFromMastery(masteryState))
     } finally {
       setLoading(false)
     }
@@ -71,26 +112,31 @@ export default function LintReport() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Lint Report</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Checks wiki health: missing pages, orphans, weak bridges, and personalization gaps.
+            Checks wiki health: missing pages, orphans, weak bridges, and fading concepts.
           </p>
         </div>
-        <button
-          onClick={runLint}
-          disabled={loading}
-          className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
-        >
-          {loading ? 'Running…' : '▶ Run Lint'}
-        </button>
+        <div className="flex items-center gap-2">
+          {report?._mock && (
+            <span className="text-xs text-amber-500 border border-amber-200 bg-amber-50 rounded-full px-2 py-0.5">demo</span>
+          )}
+          <button
+            onClick={runLint}
+            disabled={loading}
+            className="px-4 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Running…' : '▶ Run Lint'}
+          </button>
+        </div>
       </div>
 
       {/* Summary pills */}
       {report && (
         <div className="flex flex-wrap gap-3">
           {[
-            { key: 'all',     label: 'All',       count: issues.length, style: 'bg-gray-100 text-gray-700 border-gray-200' },
-            { key: 'error',   label: 'Errors',    count: counts.error,   style: 'bg-red-50 text-red-700 border-red-200' },
-            { key: 'warning', label: 'Warnings',  count: counts.warning, style: 'bg-amber-50 text-amber-700 border-amber-200' },
-            { key: 'info',    label: 'Info',       count: counts.info,   style: 'bg-sky-50 text-sky-700 border-sky-200' },
+            { key: 'all',     label: 'All',      count: issues.length,  style: 'bg-gray-100 text-gray-700 border-gray-200' },
+            { key: 'error',   label: 'Errors',   count: counts.error,   style: 'bg-red-50 text-red-700 border-red-200' },
+            { key: 'warning', label: 'Warnings', count: counts.warning, style: 'bg-amber-50 text-amber-700 border-amber-200' },
+            { key: 'info',    label: 'Info',      count: counts.info,   style: 'bg-sky-50 text-sky-700 border-sky-200' },
           ].map(tab => (
             <button
               key={tab.key}
@@ -114,12 +160,6 @@ export default function LintReport() {
         </div>
       )}
 
-      {error && !loading && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-red-600 text-sm">
-          {error}
-        </div>
-      )}
-
       {report && !loading && (
         <>
           {filtered.length === 0 ? (
@@ -137,7 +177,6 @@ export default function LintReport() {
             </div>
           )}
 
-          {/* Metadata */}
           <div className="text-xs text-gray-400 text-right">
             {report.generated_at && <>Report generated {new Date(report.generated_at).toLocaleString()}</>}
             {report.wiki_page_count != null && <> · {report.wiki_page_count} pages scanned</>}

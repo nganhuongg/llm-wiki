@@ -156,7 +156,7 @@ export default function App() {
         {activeTab === 'query'   && <QueryBox    masteryState={masteryState} />}
         {activeTab === 'mastery' && <MasteryTimeline masteryState={masteryState} />}
         {activeTab === 'graph'   && <GraphView   masteryState={masteryState} />}
-        {activeTab === 'lint'    && <LintReport  />}
+        {activeTab === 'lint'    && <LintReport  masteryState={masteryState} />}
       </main>
 
       <footer className="text-center text-xs text-gray-400 py-3 border-t border-gray-100">
