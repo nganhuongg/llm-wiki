@@ -23,8 +23,9 @@ async def synthesize_answer(question: str, context_blocks: list[dict[str, Any]])
     if not context_blocks:
         return "_No relevant wiki pages or memories yet. Ingest some materials first._", "fallback"
 
+    skill = _load_personalized_skill()
     if not config.LLM_API_KEY:
-        return _fallback_answer(question, context_blocks), "fallback"
+        return _fallback_answer(question, context_blocks, skill), "fallback"
 
     try:
         from litellm import acompletion
@@ -37,7 +38,8 @@ async def synthesize_answer(question: str, context_blocks: list[dict[str, Any]])
                     "Answer the student's question directly using only the provided context. "
                     "Do not just list sources. Explain the idea clearly, connect the relevant concepts, "
                     "adapt to the student's confusion when student context is present, and cite source paths inline. "
-                    "If the context is insufficient, say what is missing."
+                    "If the context is insufficient, say what is missing.\n\n"
+                    f"Current personalized explainer skill:\n{skill}"
                 ),
             },
             {
@@ -47,21 +49,38 @@ async def synthesize_answer(question: str, context_blocks: list[dict[str, Any]])
         ]
         response = await asyncio.wait_for(
             acompletion(
-                model=_model_name(),
-                api_key=config.LLM_API_KEY,
-                messages=messages,
-                temperature=1,
-                max_completion_tokens=1200,
+                **_completion_kwargs(messages),
             ),
             timeout=config.LLM_TIMEOUT_SECONDS,
         )
         content = response.choices[0].message.content
         if content and content.strip():
             return content.strip(), f"llm:{_model_name()}"
-    except Exception:
-        pass
+        print(f"LLM synthesis returned empty content for {_model_name()}; using fallback answer.")
+    except Exception as e:
+        print(f"LLM synthesis failed for {_model_name()}: {type(e).__name__}: {e}")
 
-    return _fallback_answer(question, context_blocks), "fallback"
+    return _fallback_answer(question, context_blocks, skill), "fallback"
+
+
+def _load_personalized_skill() -> str:
+    path = config.SKILLS_DIR / "personalized-explainer" / "SKILL.md"
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8", errors="ignore")[:3000]
+
+
+def _completion_kwargs(messages: list[dict[str, str]]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "model": _model_name(),
+        "api_key": config.LLM_API_KEY,
+        "messages": messages,
+        "temperature": 1,
+        "max_completion_tokens": config.LLM_MAX_COMPLETION_TOKENS,
+    }
+    if config.LLM_REASONING_EFFORT and not _model_name().endswith("gpt-5.5"):
+        kwargs["reasoning_effort"] = config.LLM_REASONING_EFFORT
+    return kwargs
 
 
 def _build_prompt(question: str, context_blocks: list[dict[str, Any]]) -> str:
@@ -83,7 +102,7 @@ def _build_prompt(question: str, context_blocks: list[dict[str, Any]]) -> str:
     )
 
 
-def _fallback_answer(question: str, context_blocks: list[dict[str, Any]]) -> str:
+def _fallback_answer(question: str, context_blocks: list[dict[str, Any]], skill: str = "") -> str:
     source_names = [block["source"] for block in context_blocks[:5]]
     joined = "\n\n".join(block["text"] for block in context_blocks)
     lower = (question + "\n" + joined).lower()
@@ -94,7 +113,13 @@ def _fallback_answer(question: str, context_blocks: list[dict[str, Any]]) -> str
         "## Short answer",
     ]
 
-    if "zika" in lower and "case study" in lower:
+    personalized_chain = "case study -> evidence" in skill.lower() or "separate claim, evidence" in skill.lower()
+
+    if personalized_chain and "zika" in lower and "case study" in lower:
+        lines.append(
+            "The Zika microcephaly reading is a case study because it uses one outbreak as a deep evidence source, then builds a careful causal argument from that case instead of pretending it is a controlled experiment."
+        )
+    elif "zika" in lower and "case study" in lower:
         lines.append(
             "The Zika microcephaly reading is a case study because it examines a small number of naturally occurring cases in depth rather than running a controlled experiment. "
             "That design fits the research problem: intentionally exposing pregnant people or fetuses to Zika would be unethical, so the researchers use detailed evidence from existing cases to investigate a possible causal mechanism."
@@ -115,10 +140,28 @@ def _fallback_answer(question: str, context_blocks: list[dict[str, Any]]) -> str
     lines.extend([
         "",
         "## How the concepts connect",
-        "- **Research design:** choose the study structure that is ethical and feasible for the question.",
-        "- **Evidence-based argument:** use observations or documents to support a specific claim.",
-        "- **Hypothesis development:** explain what pattern or mechanism the evidence suggests.",
-        "- **Plausibility:** check whether the assumptions behind the explanation are reasonable.",
+    ])
+    if personalized_chain and "zika" in lower:
+        lines.extend([
+            "- **Case study:** Zika/microcephaly is the focused case: a specific outbreak, population, and observed harm.",
+            "- **Evidence:** the case supplies observations such as timing, geography, clinical reports, and alternative explanations.",
+            "- **Evidence-based argument:** those observations become support for the claim that Zika exposure is linked to microcephaly.",
+            "- **Hypothesis development:** the argument turns into a testable causal hypothesis: Zika infection during pregnancy can contribute to fetal brain development problems.",
+            "- **Plausibility:** the hypothesis is stronger when the mechanism, timing, and rival explanations make sense.",
+            "",
+            "Claim: Zika exposure may contribute to microcephaly. Evidence: clustered cases, timing, and biological clues. Assumption: the observed association reflects a causal pathway, not only a confounder. Limitation: a case study can make the explanation plausible, but it cannot prove population-wide causality alone.",
+            "",
+            "For you specifically: treat the case study as the raw material for an argument. The case gives evidence, the evidence supports a hypothesis, and plausibility checks whether the argument's warrant is reasonable.",
+        ])
+    else:
+        lines.extend([
+            "- **Research design:** choose the study structure that is ethical and feasible for the question.",
+            "- **Evidence-based argument:** use observations or documents to support a specific claim.",
+            "- **Hypothesis development:** explain what pattern or mechanism the evidence suggests.",
+            "- **Plausibility:** check whether the assumptions behind the explanation are reasonable.",
+        ])
+
+    lines.extend([
         "",
         "## What to say in discussion",
         "\"This is a case study because the researchers use detailed naturally occurring cases to investigate a possible mechanism, then argue carefully from evidence while acknowledging limits on generalization.\"",

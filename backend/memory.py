@@ -15,10 +15,14 @@ import redis.asyncio as aioredis
 from redis.exceptions import ConnectionError, ResponseError
 from . import config
 
-try:
-    import cognee  # type: ignore
-    _COGNEE = True
-except Exception:  # pragma: no cover
+if config.ENABLE_COGNEE_WRITES or config.ENABLE_COGNEE_RECALL:
+    try:
+        import cognee  # type: ignore
+        _COGNEE = True
+    except Exception:  # pragma: no cover
+        cognee = None  # type: ignore
+        _COGNEE = False
+else:
     cognee = None  # type: ignore
     _COGNEE = False
 
@@ -179,7 +183,7 @@ async def get_recent_events(session_id: str, limit: int = 50) -> list[dict]:
 # ============================================================================
 async def distill_to_graph(session_id: str, concept_slug: str, mastery_score: float | None = None) -> None:
     """Promote a concept to permanent Cognee graph when mastery >= threshold."""
-    if not _COGNEE:
+    if not _COGNEE or not config.ENABLE_COGNEE_WRITES:
         return
     threshold = config.MASTERY_THRESHOLDS["consolidate"]
     
@@ -205,7 +209,7 @@ async def distill_to_graph(session_id: str, concept_slug: str, mastery_score: fl
 # COGNEE WRAPPER (Async-Safe)
 # ============================================================================
 async def remember(text: str, metadata: dict[str, Any] | None = None) -> None:
-    if not _COGNEE:
+    if not _COGNEE or not config.ENABLE_COGNEE_WRITES:
         return
     try:
         if metadata:
@@ -215,7 +219,7 @@ async def remember(text: str, metadata: dict[str, Any] | None = None) -> None:
         print(f"Cognee remember failed: {e}")
 
 async def recall(query: str, limit: int = 5) -> list[str]:
-    if not _COGNEE:
+    if not _COGNEE or not config.ENABLE_COGNEE_RECALL:
         return []
     try:
         results = await asyncio.wait_for(
@@ -322,7 +326,11 @@ async def clear_session(session_id: str) -> None:
         await redis_cli.delete(key)
 
 def backend_name() -> str:
-    return "cognee+redis" if _COGNEE else "cognee-only"
+    if _COGNEE and config.ENABLE_COGNEE_WRITES:
+        return "redis+cognee"
+    if _COGNEE:
+        return "redis+cognee-optional"
+    return "redis+wiki"
 
 
 def slugify(name: str) -> str:

@@ -75,6 +75,7 @@ SESSION_PRUNE_SECONDS = SESSION_PRUNE_DAYS * 86400
 # Cognee / LLM
 # ============================================================================
 COGNEE_TIMEOUT_SECONDS = float(os.getenv("COGNEE_TIMEOUT_SECONDS", "8"))
+ENABLE_COGNEE_WRITES = os.getenv("ENABLE_COGNEE_WRITES", "false").lower() in {"1", "true", "yes"}
 ENABLE_COGNEE_RECALL = os.getenv("ENABLE_COGNEE_RECALL", "false").lower() in {"1", "true", "yes"}
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-5-mini").strip()
@@ -85,6 +86,8 @@ LLM_API_KEY = (
     or ""
 )
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
+LLM_MAX_COMPLETION_TOKENS = int(os.getenv("LLM_MAX_COMPLETION_TOKENS", "3000"))
+LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "minimal").strip()
 
 # ============================================================================
 # Ensure directories exist

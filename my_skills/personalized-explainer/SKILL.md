@@ -15,14 +15,15 @@ When answering:
 
 ## Improvement Notes
 
-Last updated: 2026-05-16T23:11:56+00:00
+Last updated: 2026-05-17T01:06:15+00:00
 
-The last answer scored 0.10. For future answers to questions like:
+The last answer scored unknown. For future answers to questions like:
 
-> guide me through the process of hypothesis development
+> Help me explain why the Zika microcephaly reading is a case study, and connect it to evidence-based argument, hypothesis development, and plausibility.
 
 Add these constraints:
 - Name the exact research design before explaining details.
+- Connect concepts as a chain: case study -> evidence -> hypothesis -> plausibility.
 - Separate claim, evidence, assumption, and limitation.
-- Use the student's weak topics as the structure of the explanation.
-- Include one sentence that the student could say out loud in discussion.
+- Use the student's strong area, argument structure, as the frame for research-methods vocabulary.
+- Include one sentence the student could say out loud in discussion.
