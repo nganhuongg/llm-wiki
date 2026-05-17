@@ -39,7 +39,9 @@ STUDENT_PROFILE_JSON = META_DIR / "student_profile.json"
 # ============================================================================
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DEFAULT_SESSION_ID = os.getenv("DEFAULT_SESSION_ID", "demo")
-DEMO_TIME_SCALE = max(float(os.getenv("DEMO_TIME_SCALE", "100")), 1.0)
+
+# P2 HACKATHON FIX: 6000x so 1 real day ≈ 14.4 demo seconds
+DEMO_TIME_SCALE = max(int(os.getenv("DEMO_TIME_SCALE", "6000")), 1)
 
 # ============================================================================
 # Mastery & Learning
@@ -48,22 +50,23 @@ MASTERY_THRESHOLDS = {
     "fading": 0.4,        # Below this = fading concept (lint warning)
     "consolidate": 0.7,   # At or above = promote to Cognee graph
 }
-
 MASTERY_DELTAS = {
     "query_touch": 0.05,       # Concept mentioned in search result
     "high_rating": 0.2,        # Student rated answer ≥0.7
 }
-
 INITIAL_MASTERY = 0.2
 DECAY_THRESHOLD = float(os.getenv("DECAY_THRESHOLD", "0.4"))
 
 # ============================================================================
 # Forgetting curve (Ebbinghaus) — scaled by DEMO_TIME_SCALE
 # ============================================================================
-# Real-world ~1 day to first forget. At 100x scale: 86400s/100 ≈ 14 minutes.
-DECAY_BASE_SECONDS = int(os.getenv("DECAY_BASE_SECONDS", str(24 * 60 * 60)))
-DECAY_TTL_SECONDS = max(int(DECAY_BASE_SECONDS / DEMO_TIME_SCALE), 5)
-CONCEPT_TTL_SECONDS = int(86400 / DEMO_TIME_SCALE)
+# Real-world ~1 day to first forget. At 6000x: 86400s/6000 ≈ 14.4 seconds.
+# Safety floor so demo never hits 0 or negative TTL.
+CONCEPT_TTL_SECONDS = max(int(86400 / DEMO_TIME_SCALE), 10)
+
+# P2 HACKATHON FIX: Auto-decay parameters
+DECAY_DELTA = -0.02
+DECAY_CHECK_INTERVAL_SECONDS = 2
 
 SESSION_PRUNE_DAYS = 7
 SESSION_PRUNE_SECONDS = SESSION_PRUNE_DAYS * 86400
