@@ -40,7 +40,7 @@ STUDENT_PROFILE_JSON = META_DIR / "student_profile.json"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DEFAULT_SESSION_ID = os.getenv("DEFAULT_SESSION_ID", "demo")
 
-# P2 HACKATHON FIX: 6000x so 1 real day ≈ 14.4 demo seconds
+# P2 HACKATHON FIX: 6000x so 1 real day is about 14.4 demo seconds
 DEMO_TIME_SCALE = max(int(os.getenv("DEMO_TIME_SCALE", "6000")), 1)
 
 # ============================================================================
@@ -52,15 +52,15 @@ MASTERY_THRESHOLDS = {
 }
 MASTERY_DELTAS = {
     "query_touch": 0.05,       # Concept mentioned in search result
-    "high_rating": 0.2,        # Student rated answer ≥0.7
+    "high_rating": 0.2,        # Student rated answer >= 0.7
 }
 INITIAL_MASTERY = 0.2
 DECAY_THRESHOLD = float(os.getenv("DECAY_THRESHOLD", "0.4"))
 
 # ============================================================================
-# Forgetting curve (Ebbinghaus) — scaled by DEMO_TIME_SCALE
+# Forgetting curve (Ebbinghaus) - scaled by DEMO_TIME_SCALE
 # ============================================================================
-# Real-world ~1 day to first forget. At 6000x: 86400s/6000 ≈ 14.4 seconds.
+# Real-world ~1 day to first forget. At 6000x: 86400s/6000 is about 14.4 seconds.
 # Safety floor so demo never hits 0 or negative TTL.
 CONCEPT_TTL_SECONDS = max(int(86400 / DEMO_TIME_SCALE), 10)
 
@@ -76,7 +76,7 @@ SESSION_PRUNE_SECONDS = SESSION_PRUNE_DAYS * 86400
 # ============================================================================
 COGNEE_TIMEOUT_SECONDS = float(os.getenv("COGNEE_TIMEOUT_SECONDS", "8"))
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip()
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-5-mini").strip()
 LLM_API_KEY = (
     os.getenv("LLM_API_KEY")
     or os.getenv("OPENAI_API_KEY")

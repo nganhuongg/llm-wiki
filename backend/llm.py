@@ -50,8 +50,8 @@ async def synthesize_answer(question: str, context_blocks: list[dict[str, Any]])
                 model=_model_name(),
                 api_key=config.LLM_API_KEY,
                 messages=messages,
-                temperature=0.2,
-                max_tokens=900,
+                temperature=1,
+                max_completion_tokens=1200,
             ),
             timeout=config.LLM_TIMEOUT_SECONDS,
         )

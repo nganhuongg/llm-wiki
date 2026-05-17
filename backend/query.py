@@ -8,7 +8,7 @@ from . import config, llm, memory, search
 
 async def answer(question: str, session_id: str, k: int = 5) -> dict:
     hits = search.search(question, k=k)
-    recalled = await memory.recall(question, limit=k)
+    recalled = await memory.recall(question, limit=k) if hits else []
 
     # NEW: Extract which concepts were touched
     concepts_touched = [h.get("concept_slug", "") for h in hits if h.get("concept_slug")]
@@ -49,6 +49,7 @@ async def answer(question: str, session_id: str, k: int = 5) -> dict:
     return {
         "question": question,
         "answer": answer_md,
+        "sources": [h["path"] for h in hits],
         "concepts_touched": concepts_touched,  # NEW: for rating phase
         "hits": hits,
         "recalled": recalled,

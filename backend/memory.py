@@ -3,7 +3,7 @@ Combines:
 - Cognee for permanent semantic memory (graph)
 - Redis for student's working memory (mastery state + event log)
 - Background decay watcher + Pub/Sub for live UI toasts
-- Distillation rule: mastery ≥ 0.7 → promote to Cognee graph
+- Distillation rule: mastery >= 0.7 -> promote to Cognee graph
 """
 from __future__ import annotations
 import asyncio
@@ -36,7 +36,7 @@ async def get_redis() -> aioredis.Redis | None:
             )
             await _redis_client.ping()
         except (ConnectionError, ResponseError) as e:
-            print(f"⚠️  Redis connection failed: {e}")
+            print(f"Redis connection failed: {e}")
             print("Continuing with fallback (no mastery tracking)")
             _redis_client = None
     return _redis_client
@@ -137,8 +137,20 @@ async def log_event(session_id: str, event_type: str, metadata: dict[str, Any] |
     metadata = metadata or {}
     metadata["event_type"] = event_type
     metadata["timestamp"] = time.time()
-    event_id = await redis_cli.xadd(key, metadata)
+    event_id = await redis_cli.xadd(key, _redis_stream_fields(metadata))
     return str(event_id)
+
+
+def _redis_stream_fields(metadata: dict[str, Any]) -> dict[str, str | int | float]:
+    fields: dict[str, str | int | float] = {}
+    for key, value in metadata.items():
+        if isinstance(value, (str, int, float)):
+            fields[key] = value
+        elif value is None:
+            fields[key] = ""
+        else:
+            fields[key] = json.dumps(value)
+    return fields
 
 async def get_recent_events(session_id: str, limit: int = 50) -> list[dict]:
     if not session_id:
@@ -155,10 +167,10 @@ async def get_recent_events(session_id: str, limit: int = 50) -> list[dict]:
     return result
 
 # ============================================================================
-# DISTILLATION: Redis → Cognee Graph
+# DISTILLATION: Redis -> Cognee Graph
 # ============================================================================
 async def distill_to_graph(session_id: str, concept_slug: str, mastery_score: float | None = None) -> None:
-    """Promote a concept to permanent Cognee graph when mastery ≥ threshold."""
+    """Promote a concept to permanent Cognee graph when mastery >= threshold."""
     if not _COGNEE:
         return
     threshold = config.MASTERY_THRESHOLDS["consolidate"]
@@ -176,14 +188,15 @@ async def distill_to_graph(session_id: str, concept_slug: str, mastery_score: fl
     }
 
     try:
-        # P2 HACKATHON FIX: Wrap sync Cognee call in thread
-        await asyncio.to_thread(
-            cognee.remember,
-            f"Consolidated concept: {concept_slug}",
-            metadata=metadata,
+        await asyncio.wait_for(
+            cognee.remember(
+                f"Consolidated concept: {concept_slug}",
+                metadata=metadata,
+            ),
+            timeout=config.COGNEE_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        print(f"⚠️  Distillation failed for {concept_slug}: {e}")
+        print(f"Distillation failed for {concept_slug}: {e}")
 
 # ============================================================================
 # COGNEE WRAPPER (Async-Safe)
@@ -192,20 +205,26 @@ async def remember(text: str, metadata: dict[str, Any] | None = None) -> None:
     if not _COGNEE:
         return
     try:
-        await asyncio.to_thread(cognee.remember, text, metadata=metadata)
+        await asyncio.wait_for(
+            cognee.remember(text, metadata=metadata),
+            timeout=config.COGNEE_TIMEOUT_SECONDS,
+        )
     except Exception as e:
-        print(f"⚠️  Cognee remember failed: {e}")
+        print(f"Cognee remember failed: {e}")
 
 async def recall(query: str, limit: int = 5) -> list[str]:
     if not _COGNEE:
         return []
     try:
-        results = await asyncio.to_thread(cognee.recall, query)
+        results = await asyncio.wait_for(
+            cognee.recall(query),
+            timeout=config.COGNEE_TIMEOUT_SECONDS,
+        )
         if isinstance(results, list):
             return [str(r) for r in results[:limit]]
         return [str(results)]
     except Exception as e:
-        print(f"⚠️  Cognee recall failed: {e}")
+        print(f"Cognee recall failed: {e}")
         return []
 
 # ============================================================================
@@ -218,10 +237,13 @@ async def _publish_decay_event(session_id: str, concept_slug: str, mastery: floa
         return
     channel = f"decay:warn:{session_id}"
     payload = json.dumps({
+        "type": "decay:warn",
+        "concept": concept_slug,
         "concept_slug": concept_slug,
+        "score": round(mastery, 3),
         "mastery": round(mastery, 3),
         "timestamp": time.time(),
-        "threshold": config.MASTERY_THRESHOLDS["fading"]
+        "threshold": config.MASTERY_THRESHOLDS["fading"],
     })
     await redis_cli.publish(channel, payload)
 
@@ -252,11 +274,10 @@ async def _apply_fading_decay(session_id: str, delta: float = config.DECAY_DELTA
 
 async def start_decay_watcher(app: Any = None) -> None:
     """Background task that runs every N seconds to apply mastery decay."""
-    print("🕰️  Decay watcher started (P2 HACKATHON MODE)")
+    print("Decay watcher started (P2 HACKATHON MODE)")
     while True:
         await asyncio.sleep(config.DECAY_CHECK_INTERVAL_SECONDS)
-        # In a real app, we'd track active sessions. For hackathon, we skip.
-        # You can trigger decay per-session via frontend polling or /rate calls.
+        await _apply_fading_decay(config.DEFAULT_SESSION_ID)
 
 # ============================================================================
 # SESSION MANAGEMENT

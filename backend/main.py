@@ -1,10 +1,14 @@
 """FastAPI entrypoint for CourseAtlas."""
 from __future__ import annotations
+import asyncio
+import contextlib
+import json
 import shutil
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from . import config, graph, ingest, lint, memory, query, wiki_writer
 
@@ -19,15 +23,23 @@ app.add_middleware(
 class QueryBody(BaseModel):
     question: str
     k: int = 5
+    session_id: str | None = None
 
 class RateBody(BaseModel):
-    rating: float  # 0.0 to 1.0
-    concepts_touched: list[str]
+    rating: float | None = None  # 0.0 to 1.0
+    score: float | None = None
+    concepts_touched: list[str] = []
+    question: str | None = None
+    answer: str = ""
+    session_id: str | None = None
 
 class SaveAnswerBody(BaseModel):
-    concept: str
-    courses: list[str]
-    answer_md: str
+    concept: str | None = None
+    courses: list[str] = []
+    answer_md: str | None = None
+    question: str | None = None
+    answer: str | None = None
+    session_id: str | None = None
 
 @app.get("/")
 async def root() -> dict:
@@ -38,7 +50,16 @@ async def root() -> dict:
 # ============================================================================
 @app.on_event("startup")
 async def startup_event():
-    await memory.start_decay_watcher(app)
+    app.state.decay_task = asyncio.create_task(memory.start_decay_watcher(app))
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    task = getattr(app.state, "decay_task", None)
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    await memory.close_redis()
 
 # ============================================================================
 # INGEST (Updated to handle session_id)
@@ -67,9 +88,14 @@ async def get_mastery_state(session_id: str = Query(...)) -> dict:
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
     state = await memory.get_mastery_state(session_id)
+    concepts = [
+        {"slug": slug, "score": score}
+        for slug, score in sorted(state.items(), key=lambda item: item[1])
+    ]
     return {
         "session_id": session_id,
         "mastery": state,
+        "concepts": concepts,
         "threshold_fading": config.MASTERY_THRESHOLDS["fading"],
         "threshold_consolidate": config.MASTERY_THRESHOLDS["consolidate"],
     }
@@ -77,6 +103,30 @@ async def get_mastery_state(session_id: str = Query(...)) -> dict:
 # ============================================================================
 # NEW: DECAY EVENTS ENDPOINT (For Frontend Polling / SSE)
 # ============================================================================
+@app.get("/events/decay")
+async def decay_events(session_id: str = Query(default=config.DEFAULT_SESSION_ID)):
+    async def event_stream():
+        redis_cli = await memory.get_redis()
+        if not redis_cli:
+            yield ": redis unavailable\n\n"
+            return
+        pubsub = redis_cli.pubsub()
+        await pubsub.subscribe(f"decay:warn:{session_id}")
+        try:
+            while True:
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15)
+                if msg and msg.get("type") == "message":
+                    data = msg.get("data")
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+                    yield f"data: {data}\n\n"
+                else:
+                    yield ": keepalive\n\n"
+        finally:
+            await pubsub.close()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
 @app.get("/events/decay/{session_id}")
 async def get_decay_events(session_id: str) -> dict:
     return {
@@ -90,7 +140,8 @@ async def get_decay_events(session_id: str) -> dict:
 # QUERY (Updated with session_id)
 # ============================================================================
 @app.post("/query")
-async def post_query(body: QueryBody, session_id: str = Query(...)) -> dict:
+async def post_query(body: QueryBody, session_id: str | None = Query(None)) -> dict:
+    session_id = session_id or body.session_id or config.DEFAULT_SESSION_ID
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
     result = await query.answer(body.question, session_id, k=body.k)
@@ -100,30 +151,33 @@ async def post_query(body: QueryBody, session_id: str = Query(...)) -> dict:
 # RATE ANSWER (Updates Mastery + Triggers Skill Improvement Proposal)
 # ============================================================================
 @app.post("/rate")
-async def post_rate(body: RateBody, session_id: str = Query(...)) -> dict:
+async def post_rate(body: RateBody, session_id: str | None = Query(None)) -> dict:
+    session_id = session_id or body.session_id or config.DEFAULT_SESSION_ID
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
-    if not (0.0 <= body.rating <= 1.0):
+    rating = body.rating if body.rating is not None else body.score
+    if rating is None or not (0.0 <= rating <= 1.0):
         raise HTTPException(status_code=400, detail="rating must be 0.0-1.0")
+    concepts_touched = body.concepts_touched or _concepts_from_text(f"{body.question or ''} {body.answer}")
 
     updated_concepts = []
-    if body.rating >= 0.7:
-        for slug in body.concepts_touched:
+    if rating >= 0.7:
+        for slug in concepts_touched:
             await memory.bump_mastery(session_id, slug, config.MASTERY_DELTAS["high_rating"])
             new_score = await memory.get_mastery(session_id, slug)
             await memory.distill_to_graph(session_id, slug, new_score)
             updated_concepts.append(slug)
 
     await memory.log_event(session_id, "rate", {
-        "rating": body.rating,
-        "concepts_touched": body.concepts_touched,
+        "rating": rating,
+        "concepts_touched": json.dumps(concepts_touched),
         "bumped": updated_concepts,
     })
 
     new_state = await memory.get_mastery_state(session_id)
     return {
         "success": True,
-        "rating": body.rating,
+        "rating": rating,
         "concepts_bumped": updated_concepts,
         "mastery_state": new_state,
     }
@@ -153,16 +207,20 @@ async def read_page(path: str) -> dict:
 # SAVE & LINT ENDPOINTS (Updated with session_id)
 # ============================================================================
 @app.post("/save-answer")
-async def post_save_answer(body: SaveAnswerBody, session_id: str = Query(...)) -> dict:
+async def post_save_answer(body: SaveAnswerBody, session_id: str | None = Query(None)) -> dict:
+    session_id = session_id or body.session_id or config.DEFAULT_SESSION_ID
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
-    page = wiki_writer.write_bridge_page(body.concept, body.courses, body.answer_md)
+    concept = body.concept or body.question or "saved_answer"
+    answer_md = body.answer_md or body.answer or ""
+    page = wiki_writer.write_bridge_page(concept, body.courses, answer_md)
     wiki_writer.rebuild_index()
     await memory.log_event(session_id, "save_answer", {
         "concept": body.concept,
         "courses": body.courses,
     })
-    return {"page": page.relative_to(config.WIKI_DIR).as_posix()}
+    path = page.relative_to(config.WIKI_DIR).as_posix()
+    return {"page": path, "path": path}
 
 @app.get("/lint")
 async def get_lint(session_id: str = Query(...)) -> dict:
@@ -190,3 +248,16 @@ async def get_graph(session_id: str = Query(...)) -> dict:
     for node in graph_data.get("nodes", []):
         node["mastery"] = state.get(node["id"], config.INITIAL_MASTERY)
     return graph_data
+
+
+def _concepts_from_text(text: str) -> list[str]:
+    known = {
+        "case_study": ["case study", "zika", "microcephaly"],
+        "evidence_based_argument": ["evidence", "argument", "claim"],
+        "hypothesis_development": ["hypothesis"],
+        "plausibility": ["plausible", "plausibility"],
+        "research_design": ["research design"],
+    }
+    lower = text.lower()
+    concepts = [slug for slug, needles in known.items() if any(needle in lower for needle in needles)]
+    return concepts or ["personalized_explanation"]

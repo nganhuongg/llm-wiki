@@ -84,7 +84,7 @@ def run() -> dict:
         report_lines.append("_Wiki looks clean._\n")
     else:
         for i, issue in enumerate(issues, 1):
-            report_lines.append(f"{i}. **{issue['type']}** — {issue['message']}")
+            report_lines.append(f"{i}. **{issue['type']}** - {issue['message']}")
     config.LINT_REPORT_PATH.write_text("\n".join(report_lines), encoding="utf-8")
 
     return {"issues": issues, "report_path": str(config.LINT_REPORT_PATH.relative_to(config.ROOT))}

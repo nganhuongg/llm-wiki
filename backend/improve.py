@@ -1,4 +1,4 @@
-"""Skill improvement loop: SkillRunEntry → SKILL.md rewrite.
+"""Skill improvement loop: SkillRunEntry -> SKILL.md rewrite.
 
 This module is owned by P3 but defined here so the API layer can import it.
 """
