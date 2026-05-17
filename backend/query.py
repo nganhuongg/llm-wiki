@@ -1,8 +1,9 @@
 """Answer a question against the wiki. Combines BM25 over markdown +
-semantic recall from cognee memory, anchored to student's mastery state."""
+semantic recall from cognee memory, anchored to student's mastery state,
+then synthesizes a direct answer via the LLM module."""
 from __future__ import annotations
 
-from . import config, memory, search
+from . import config, llm, memory, search
 
 
 async def answer(question: str, session_id: str, k: int = 5) -> dict:
@@ -29,20 +30,21 @@ async def answer(question: str, session_id: str, k: int = 5) -> dict:
         },
     )
 
-    sections = []
+    context_blocks = []
     for h in hits:
-        sections.append(f"### {h['path']}\n{h['snippet']}")
+        context_blocks.append({
+            "source": h["path"],
+            "text": h["snippet"],
+            "kind": "wiki",
+        })
     for i, r in enumerate(recalled, 1):
-        sections.append(f"### memory:{i}\n{r}")
+        context_blocks.append({
+            "source": f"memory:{i}",
+            "text": r,
+            "kind": "memory",
+        })
 
-    if not sections:
-        answer_md = "_No relevant wiki pages or memories yet. Ingest some materials first._"
-    else:
-        answer_md = (
-            f"**Question:** {question}\n\n"
-            f"Pulled {len(hits)} wiki page(s) and {len(recalled)} memory snippet(s).\n\n"
-            + "\n\n".join(sections)
-        )
+    answer_md, answer_backend = await llm.synthesize_answer(question, context_blocks)
 
     return {
         "question": question,
@@ -51,4 +53,5 @@ async def answer(question: str, session_id: str, k: int = 5) -> dict:
         "hits": hits,
         "recalled": recalled,
         "backend": memory.backend_name(),
+        "answer_backend": answer_backend,
     }
