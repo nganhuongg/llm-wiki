@@ -8,7 +8,7 @@ from . import config, llm, memory, search
 
 async def answer(question: str, session_id: str, k: int = 5) -> dict:
     hits = search.search(question, k=k)
-    recalled = await memory.recall(question, limit=k) if hits else []
+    recalled = await memory.recall(question, limit=k) if hits and config.ENABLE_COGNEE_RECALL else []
 
     # NEW: Extract which concepts were touched
     concepts_touched = [h.get("concept_slug", "") for h in hits if h.get("concept_slug")]

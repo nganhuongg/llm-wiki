@@ -8,6 +8,7 @@ Combines:
 from __future__ import annotations
 import asyncio
 import json
+import re
 import time
 from typing import Any
 import redis.asyncio as aioredis
@@ -59,6 +60,7 @@ async def set_mastery(session_id: str, concept_slug: str, score: float) -> None:
         return
     score = max(0.0, min(1.0, score))
     key = f"mastery:{session_id}"
+    await _mark_active_session(redis_cli, session_id)
     await redis_cli.zadd(key, {concept_slug: score})
 
 async def bump_mastery(session_id: str, concept_slug: str, delta: float) -> None:
@@ -67,10 +69,8 @@ async def bump_mastery(session_id: str, concept_slug: str, delta: float) -> None
     redis_cli = await get_redis()
     if not redis_cli:
         return
-    key = f"mastery:{session_id}"
-    score = await redis_cli.zincrby(key, delta, concept_slug)
-    if score > 1.0:
-        await redis_cli.zadd(key, {concept_slug: 1.0})
+    current = await get_mastery(session_id, concept_slug)
+    await set_mastery(session_id, concept_slug, current + delta)
 
 async def get_mastery(session_id: str, concept_slug: str) -> float:
     if not session_id or not concept_slug:
@@ -107,7 +107,10 @@ async def get_mastery_state(session_id: str) -> dict[str, float]:
 async def seed_concept_mastery(session_id: str, concepts: list[str]) -> None:
     if not session_id or not concepts:
         return
-    for slug in concepts:
+    for concept in concepts:
+        slug = slugify(concept)
+        if not slug:
+            continue
         await set_mastery(session_id, slug, config.INITIAL_MASTERY)
         await _set_concept_ttl(session_id, slug)
 
@@ -133,12 +136,17 @@ async def log_event(session_id: str, event_type: str, metadata: dict[str, Any] |
     redis_cli = await get_redis()
     if not redis_cli:
         return ""
+    await _mark_active_session(redis_cli, session_id)
     key = f"events:{session_id}"
     metadata = metadata or {}
     metadata["event_type"] = event_type
     metadata["timestamp"] = time.time()
     event_id = await redis_cli.xadd(key, _redis_stream_fields(metadata))
     return str(event_id)
+
+
+async def _mark_active_session(redis_cli: aioredis.Redis, session_id: str) -> None:
+    await redis_cli.sadd("sessions:active", session_id)
 
 
 def _redis_stream_fields(metadata: dict[str, Any]) -> dict[str, str | int | float]:
@@ -188,13 +196,8 @@ async def distill_to_graph(session_id: str, concept_slug: str, mastery_score: fl
     }
 
     try:
-        await asyncio.wait_for(
-            cognee.remember(
-                f"Consolidated concept: {concept_slug}",
-                metadata=metadata,
-            ),
-            timeout=config.COGNEE_TIMEOUT_SECONDS,
-        )
+        text = f"Consolidated concept: {concept_slug}\nMetadata: {json.dumps(metadata)}"
+        await asyncio.wait_for(cognee.remember(text), timeout=config.COGNEE_TIMEOUT_SECONDS)
     except Exception as e:
         print(f"Distillation failed for {concept_slug}: {e}")
 
@@ -205,10 +208,9 @@ async def remember(text: str, metadata: dict[str, Any] | None = None) -> None:
     if not _COGNEE:
         return
     try:
-        await asyncio.wait_for(
-            cognee.remember(text, metadata=metadata),
-            timeout=config.COGNEE_TIMEOUT_SECONDS,
-        )
+        if metadata:
+            text = f"{text}\n\nMetadata: {json.dumps(metadata)}"
+        await asyncio.wait_for(cognee.remember(text), timeout=config.COGNEE_TIMEOUT_SECONDS)
     except Exception as e:
         print(f"Cognee remember failed: {e}")
 
@@ -277,7 +279,14 @@ async def start_decay_watcher(app: Any = None) -> None:
     print("Decay watcher started (P2 HACKATHON MODE)")
     while True:
         await asyncio.sleep(config.DECAY_CHECK_INTERVAL_SECONDS)
-        await _apply_fading_decay(config.DEFAULT_SESSION_ID)
+        redis_cli = await get_redis()
+        if not redis_cli:
+            continue
+        sessions = await redis_cli.smembers("sessions:active")
+        if not sessions:
+            sessions = {config.DEFAULT_SESSION_ID}
+        for session_id in sessions:
+            await _apply_fading_decay(str(session_id))
 
 # ============================================================================
 # SESSION MANAGEMENT
@@ -314,3 +323,7 @@ async def clear_session(session_id: str) -> None:
 
 def backend_name() -> str:
     return "cognee+redis" if _COGNEE else "cognee-only"
+
+
+def slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")

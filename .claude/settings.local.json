@@ -7,7 +7,19 @@
       "Bash(git check-ignore *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(git commit *)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(/c/Users/mangh/miniconda3/python.exe *)",
+      "Bash(git merge-tree *)",
+      "Bash(git log *)",
+      "Bash(git ls-tree *)",
+      "Bash(git rm *)"
     ]
   }
 }

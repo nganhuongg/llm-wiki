@@ -54,7 +54,7 @@ MASTERY_DELTAS = {
     "query_touch": 0.05,       # Concept mentioned in search result
     "high_rating": 0.2,        # Student rated answer >= 0.7
 }
-INITIAL_MASTERY = 0.2
+INITIAL_MASTERY = 0.72
 DECAY_THRESHOLD = float(os.getenv("DECAY_THRESHOLD", "0.4"))
 
 # ============================================================================
@@ -75,6 +75,7 @@ SESSION_PRUNE_SECONDS = SESSION_PRUNE_DAYS * 86400
 # Cognee / LLM
 # ============================================================================
 COGNEE_TIMEOUT_SECONDS = float(os.getenv("COGNEE_TIMEOUT_SECONDS", "8"))
+ENABLE_COGNEE_RECALL = os.getenv("ENABLE_COGNEE_RECALL", "false").lower() in {"1", "true", "yes"}
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-5-mini").strip()
 LLM_API_KEY = (

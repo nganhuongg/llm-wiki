@@ -10,7 +10,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from . import config, graph, ingest, lint, memory, query, wiki_writer
+from . import config, graph, improve, ingest, lint, memory, query, wiki_writer
 
 app = FastAPI(title="CourseAtlas", version="0.1.0")
 app.add_middleware(
@@ -39,6 +39,18 @@ class SaveAnswerBody(BaseModel):
     answer_md: str | None = None
     question: str | None = None
     answer: str | None = None
+    session_id: str | None = None
+
+class AssetIngestBody(BaseModel):
+    filename: str
+    session_id: str | None = None
+
+class StudentContextBody(BaseModel):
+    context: str
+    session_id: str | None = None
+
+class ImproveBody(BaseModel):
+    question: str
     session_id: str | None = None
 
 @app.get("/")
@@ -79,6 +91,32 @@ async def post_ingest(file: UploadFile = File(...), session_id: str | None = Que
 
     result = await ingest.ingest_file(dest, session_id)
     return {"file": dest.name, **result}
+
+@app.get("/assets")
+async def list_assets() -> dict:
+    files = []
+    for path in sorted(config.ASSETS_DIR.iterdir()):
+        if path.is_file() and path.suffix.lower() in {".pdf", ".docx", ".txt", ".md"}:
+            files.append({"name": path.name, "size": path.stat().st_size})
+    return {"files": files}
+
+@app.post("/ingest-assets")
+async def ingest_asset(body: AssetIngestBody) -> dict:
+    session_id = body.session_id or config.DEFAULT_SESSION_ID
+    target = (config.ASSETS_DIR / body.filename).resolve()
+    if not target.is_file() or config.ASSETS_DIR.resolve() not in target.parents:
+        raise HTTPException(404, "asset not found")
+    result = await ingest.ingest_file(target, session_id)
+    return {"file": target.name, **result}
+
+@app.post("/student-context")
+async def save_student_context(body: StudentContextBody) -> dict:
+    session_id = body.session_id or config.DEFAULT_SESSION_ID
+    page = wiki_writer.write_student_context(body.context)
+    wiki_writer.rebuild_index()
+    await memory.remember(f"Student context:\n{body.context}", metadata={"session_id": session_id})
+    await memory.log_event(session_id, "student_context", {"page": page.name})
+    return {"page": page.relative_to(config.WIKI_DIR).as_posix()}
 
 # ============================================================================
 # NEW: MASTERY STATE (For UI Bars)
@@ -170,7 +208,7 @@ async def post_rate(body: RateBody, session_id: str | None = Query(None)) -> dic
 
     await memory.log_event(session_id, "rate", {
         "rating": rating,
-        "concepts_touched": json.dumps(concepts_touched),
+        "concepts_touched": concepts_touched,
         "bumped": updated_concepts,
     })
 
@@ -181,6 +219,12 @@ async def post_rate(body: RateBody, session_id: str | None = Query(None)) -> dic
         "concepts_bumped": updated_concepts,
         "mastery_state": new_state,
     }
+
+@app.post("/improve")
+async def post_improve(body: ImproveBody) -> dict:
+    session_id = body.session_id or config.DEFAULT_SESSION_ID
+    await memory.log_event(session_id, "improve", {"question": body.question})
+    return improve.apply_rewrite(body.question)
 
 # ============================================================================
 # WIKI ENDPOINTS
@@ -194,6 +238,8 @@ async def list_pages() -> dict:
         "concepts": listing(config.CONCEPTS_DIR),
         "sources": listing(config.SOURCES_DIR),
         "bridges": listing(config.BRIDGES_DIR),
+        "student": listing(config.STUDENT_DIR),
+        "study_guides": listing(config.STUDY_GUIDES_DIR),
     }
 
 @app.get("/wiki/page/{path:path}")
@@ -213,7 +259,10 @@ async def post_save_answer(body: SaveAnswerBody, session_id: str | None = Query(
         raise HTTPException(status_code=400, detail="session_id required")
     concept = body.concept or body.question or "saved_answer"
     answer_md = body.answer_md or body.answer or ""
-    page = wiki_writer.write_bridge_page(concept, body.courses, answer_md)
+    if body.question or body.answer:
+        page = wiki_writer.write_study_guide(concept, answer_md)
+    else:
+        page = wiki_writer.write_bridge_page(concept, body.courses, answer_md)
     wiki_writer.rebuild_index()
     await memory.log_event(session_id, "save_answer", {
         "concept": body.concept,
@@ -223,10 +272,11 @@ async def post_save_answer(body: SaveAnswerBody, session_id: str | None = Query(
     return {"page": path, "path": path}
 
 @app.get("/lint")
-async def get_lint(session_id: str = Query(...)) -> dict:
+async def get_lint(session_id: str = Query(default=config.DEFAULT_SESSION_ID)) -> dict:
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
-    issues = lint.run()
+    report = lint.run()
+    issues = report.get("issues", [])
     fading = await memory.fading_concepts(session_id)
     for slug in fading:
         mastery = await memory.get_mastery(session_id, slug)
@@ -237,7 +287,7 @@ async def get_lint(session_id: str = Query(...)) -> dict:
             "threshold": config.MASTERY_THRESHOLDS["fading"],
             "message": f"Concept `{slug}` is fading (mastery {mastery:.2f}). Review soon to consolidate.",
         })
-    return {"issues": issues, "session_id": session_id}
+    return {"issues": issues, "session_id": session_id, "report_path": report.get("report_path")}
 
 @app.get("/graph")
 async def get_graph(session_id: str = Query(...)) -> dict:

@@ -23,6 +23,15 @@ HASHTAG_RE = re.compile(r"(?<!\w)#([A-Za-z][A-Za-z0-9_-]+)")
 CAP_PHRASE_RE = re.compile(r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\b")
 LEARNING_OBJ_RE = re.compile(r"(?im)^\s*(?:-|\*|\d+\.)\s*(?:students? will|you will|learn(?:ing)? objective[s]?:?)\s*(.+)$")
 
+CANONICAL_CONCEPTS = {
+    "Case Study": ["case study", "zika", "microcephaly"],
+    "Evidence Based Argument": ["evidence based", "evidence-based", "claim", "argument"],
+    "Hypothesis Development": ["hypothesis development", "hypothesis"],
+    "Plausibility": ["plausibility", "plausible"],
+    "Research Design": ["research design", "study design"],
+    "Confounders": ["confounder", "confounding"],
+}
+
 
 @dataclass
 class Extraction:
@@ -86,6 +95,10 @@ def extract(text: str, source_path: Path) -> Extraction:
     concepts = set(_top_capitalized(text))
     concepts.update(HASHTAG_RE.findall(text))
     concepts.update(m[1].strip() for m in HEADING_RE.findall(text)[1:6])
+    lower = text.lower()
+    for concept, needles in CANONICAL_CONCEPTS.items():
+        if any(needle in lower for needle in needles):
+            concepts.add(concept)
 
     learning_objs = [m.strip() for m in LEARNING_OBJ_RE.findall(text)]
     assignments = _bullets_under(text, ["assignment", "homework", "project"])
